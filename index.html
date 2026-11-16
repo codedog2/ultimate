@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#14251b">
+<title>飞盘战术板</title>
+<style>
+  :root { --bg: #14251b; --panel: #1c3326; --line: #35594a; --ink: #e8f1ea; --accent: #facc15; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    height: 100%; margin: 0; background: var(--bg); color: var(--ink);
+    font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    overscroll-behavior: none; overflow: hidden;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  }
+  #stage {
+    height: 100vh; height: 100dvh;
+    padding: max(4px, env(safe-area-inset-top)) 4px max(4px, env(safe-area-inset-bottom));
+  }
+  #board { display: block; width: 100%; height: 100%; touch-action: none; }
+  .token text { font-weight: 700; pointer-events: none; }
+  .faint { fill: rgba(255,255,255,.3); font-weight: 700; pointer-events: none; }
+
+  #menu {
+    position: fixed; display: none; flex-direction: column; gap: 6px; padding: 8px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.5); z-index: 10;
+  }
+  #menu.show { display: flex; }
+  #menu { max-width: calc(100vw - 16px); }
+  #menu .row { display: flex; gap: 6px; flex-wrap: wrap; }
+  #menu button {
+    flex: 1 0 auto; min-width: 52px; min-height: 44px; padding: 0 12px; border-radius: 10px;
+    border: 1px solid var(--line); background: #27483a; color: var(--ink);
+    font: inherit; font-size: 14px; font-weight: 600; white-space: nowrap; touch-action: manipulation;
+  }
+  #menu button:disabled { opacity: .35; }
+  #menu button:not(:disabled):active { filter: brightness(1.3); }
+  #menu button.danger { color: #fca5a5; }
+  #menu button.primary { background: var(--accent); border-color: var(--accent); color: #1f1a00; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    max-width: 88vw; padding: 9px 16px; border-radius: 20px; background: rgba(0,0,0,.82);
+    font-size: 13px; text-align: center; pointer-events: none; opacity: 0; transition: opacity .25s; z-index: 11;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <svg id="board" viewBox="-1 -1 42 82" preserveAspectRatio="xMidYMid meet">
+    <g id="world">
+    <rect id="frame" x="0" y="0" width="40" height="80" rx="0.8" fill="#2f8052" stroke="#fff" stroke-width="0.3"/>
+    <g id="ez" style="display:none">
+      <rect x="0.15" y="0.15" width="39.7" height="13.85" fill="#256843"/>
+      <rect x="0.15" y="66" width="39.7" height="13.85" fill="#256843"/>
+      <path d="M0 14h40M0 66h40" stroke="#fff" stroke-width="0.3"/>
+      <text class="faint" x="20" y="7" font-size="2.6" text-anchor="middle" dominant-baseline="central">得分区</text>
+      <text class="faint" x="20" y="73" font-size="2.6" text-anchor="middle" dominant-baseline="central">得分区</text>
+    </g>
+    <g id="side" pointer-events="none"></g>
+    <text id="hint"class="faint" x="20" y="40" font-size="2.2" text-anchor="middle" dominant-baseline="central">双击空白处添加标识</text>
+    <g id="lines"></g>
+    <g id="tokens"></g>
+    </g>
+  </svg>
+</div>
+<div id="menu"></div>
+<div id="toast" role="status"></div>
+
+<script>
+(() => {
+  const NS = 'http://www.w3.org/2000/svg';
+  const KEY = 'frisbee-board-v3';
+  const W = 40, H = 80;
+  const TEAM = {
+    a: { fill: '#1e3a8a', stroke: '#ffffff', text: '#ffffff', trail: '#a5c8ff' },
+    b: { fill: '#facc15', stroke: '#3b2f00', text: '#1f1a00', trail: '#fde047' },
+  };
+  const R = 1.9, HIT = 2.7;
+  const RUN_SPEED = 20, PASS_SPEED = 42;   // 板上单位 / 秒
+  const PASS_GAP = 200, STEP_GAP = 350;
+
+  const $ = id => document.getElementById(id);
+  const svg = $('board'), world = $('world'), gLines = $('lines'), gTokens = $('tokens'), menu = $('menu');
+
+  // ---------- 语言：中文 / 日本語 / English ----------
+  const I18N = {
+    zh: { title: '飞盘战术板', hint: '双击空白处添加标识', ez: '得分区', addEz: '加得分区', rmEz: '去掉得分区',
+      disc: '飞盘', play: '播放', undo: '撤销', reset: '重置', pass: '传盘', del: '删除', draw: '画线',
+      openL: 'Open 在左', openR: 'Open 在右', openU: 'Open 在上', openD: 'Open 在下', openOff: '不显示',
+      order: '顺序', delLine: '删除这条线', clearLines: '清除全部线', straight: '直线', arcL: '左弧', arcR: '右弧',
+      teamA: '蓝队', teamB: '黄队', noLabel: '无标识',
+      tapRecv: '点一下接盘的选手', drawHint: '在板上拖动，画出这名选手的跑位',
+      passCancel: '已取消传盘', drawCancel: '已取消画线', needLines: '先给选手画线，或者给飞盘加一次传盘',
+      playing: '播放中，点任意处停止', ended: '播放结束，点任意处回到起始位置' },
+    ja: { title: 'アルティメット戦術ボード', hint: 'ダブルタップでマーカーを追加', ez: 'エンドゾーン', addEz: 'エンドゾーン表示', rmEz: 'エンドゾーン非表示',
+      disc: 'ディスク', play: '再生', undo: '元に戻す', reset: 'リセット', pass: 'パス', del: '削除', draw: '線を描く',
+      openL: 'オープン：左', openR: 'オープン：右', openU: 'オープン：上', openD: 'オープン：下', openOff: '非表示',
+      order: '順番', delLine: 'この線を削除', clearLines: 'すべての線を消す', straight: '直線', arcL: '左カーブ', arcR: '右カーブ',
+      teamA: '青チーム', teamB: '黄チーム', noLabel: 'ラベルなし',
+      tapRecv: 'レシーバーをタップ', drawHint: 'ボード上をドラッグして走るコースを描く',
+      passCancel: 'パスをキャンセルしました', drawCancel: '線の描画をキャンセルしました', needLines: '先に選手のコースを描くか、ディスクにパスを追加してください',
+      playing: '再生中 — タップで停止', ended: '再生終了 — タップで最初の位置に戻る' },
+    en: { title: 'Ultimate Tactics Board', hint: 'Double-tap to add a marker', ez: 'End zone', addEz: 'Show end zones', rmEz: 'Hide end zones',
+      disc: 'Disc', play: 'Play', undo: 'Undo', reset: 'Reset', pass: 'Pass', del: 'Delete', draw: 'Draw route',
+      openL: 'Open: left', openR: 'Open: right', openU: 'Open: top', openD: 'Open: bottom', openOff: 'Hide',
+      order: 'Order', delLine: 'Delete line', clearLines: 'Clear all lines', straight: 'Straight', arcL: 'Curve L', arcR: 'Curve R',
+      teamA: 'Blue', teamB: 'Yellow', noLabel: 'no label',
+      tapRecv: 'Tap the receiver', drawHint: "Drag on the board to draw this player's route",
+      passCancel: 'Pass cancelled', drawCancel: 'Route cancelled', needLines: 'Draw a route or add a pass first',
+      playing: 'Playing — tap to stop', ended: 'Finished — tap to return to the start' },
+  };
+  const LANG_NAMES = { zh: '中文', ja: '日本語', en: 'English' };
+  let lang = (() => {
+    try { const s = localStorage.getItem(KEY + '-lang'); if (I18N[s]) return s; } catch (e) {}
+    const n = (navigator.language || 'en').toLowerCase();
+    return n.startsWith('zh') ? 'zh' : n.startsWith('ja') ? 'ja' : 'en';
+  })();
+  const L = key => I18N[lang][key];
+  function setLang(v) {
+    lang = v;
+    try { localStorage.setItem(KEY + '-lang', v); } catch (e) {}
+    render();
+  }
+
+  // ---------- 横竖屏：数据始终按竖板存，横屏时整块板转 90° 显示 ----------
+  let land = false;
+  function applyOrient() {
+    land = innerWidth > innerHeight;
+    svg.setAttribute('viewBox', land ? '-1 -1 82 42' : '-1 -1 42 82');
+    if (land) world.setAttribute('transform', 'translate(0 40) rotate(-90)');
+    else world.removeAttribute('transform');
+  }
+  // 横屏时把文字转回正向
+  function upright(node, x, y) {
+    if (land) node.setAttribute('transform', `rotate(90 ${x} ${y})`);
+    else node.removeAttribute('transform');
+  }
+  addEventListener('resize', () => { hideMenu(); applyOrient(); if (!playing && !ended) render(); });
+
+  // state = { ez, seq, tokens:[{id,kind:'p'|'disc',team,label,x,y}], routes:{id:[[x,y]..]}, passes:[{to,curve}] }
+  // routes[id]：该选手的跑位线，第一个点就是选手当前位置。
+  // passes：飞盘依次传给谁；curve 为 0 直线、1 / -1 两侧弧线。
+  let state = load() || { ez: false, seq: 0, tokens: [], routes: {}, passes: [] };
+  const undoStack = [];
+  let mode = null;                 // {type:'route', id} | {type:'pass'}
+  let playing = false, ended = false, playId = 0;
+
+  function load() {
+    try {
+      const s = JSON.parse(localStorage.getItem(KEY));
+      if (s && Array.isArray(s.tokens) && s.routes && Array.isArray(s.passes)) return s;
+    } catch (e) {}
+    return null;
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  function commit(before) {
+    if (JSON.stringify(state) === before) return;
+    undoStack.push(before);
+    if (undoStack.length > 60) undoStack.shift();
+    save();
+  }
+  function act(fn) { const before = JSON.stringify(state); fn(); commit(before); render(); }
+
+  // 每条线属于第几步：同一步的线同时进行，不同步按顺序播放
+  const routeStep = id => (state.rstep && state.rstep[id]) || 1;
+  const passStep = p => p.step || 1;
+  const maxStep = () => Math.max(1, ...Object.keys(state.routes).map(routeStep), ...state.passes.map(passStep));
+  function dropRoute(id) { delete state.routes[id]; if (state.rstep) delete state.rstep[id]; }
+
+  const tok = id => state.tokens.find(t => t.id === id);
+  const disc = () => state.tokens.find(t => t.kind === 'disc');
+  const r2 = v => +v.toFixed(2);
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const el = (name, attrs, parent) => {
+    const n = document.createElementNS(NS, name);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  };
+  const ptsAttr = pts => pts.map(p => p[0] + ',' + p[1]).join(' ');
+
+  // ---------- 几何 ----------
+  // 选手跑完后的位置
+  const endOf = t => { const r = state.routes[t.id]; return r ? r[r.length - 1] : [t.x, t.y]; };
+
+  // 传盘线段：从飞盘出发，依次传到各接盘人的终点
+  function passSegments() {
+    const d = disc(), out = [];
+    if (!d) return out;
+    let from = [d.x, d.y];
+    state.passes.forEach((p, i) => {
+      const t = tok(p.to);
+      if (!t) return;
+      const to = endOf(t);
+      const mx = (from[0] + to[0]) / 2, my = (from[1] + to[1]) / 2;
+      const dx = to[0] - from[0], dy = to[1] - from[1];
+      const c = [mx - dy * 0.28 * p.curve, my + dx * 0.28 * p.curve];
+      out.push({ i, from, c, to });
+      from = to;
+    });
+    return out;
+  }
+  const bez = (s, u) => {
+    const v = 1 - u;
+    return [v * v * s.from[0] + 2 * v * u * s.c[0] + u * u * s.to[0], v * v * s.from[1] + 2 * v * u * s.c[1] + u * u * s.to[1]];
+  };
+
+  function head(end, back, color, parent) {
+    const dx = end[0] - back[0], dy = end[1] - back[1], d = Math.hypot(dx, dy);
+    if (d < 0.4) return;
+    const ux = dx / d, uy = dy / d, len = 2, half = 0.85;
+    const bx = end[0] - ux * len, by = end[1] - uy * len;
+    el('polygon', {
+      points: `${end[0]},${end[1]} ${bx - uy * half},${by + ux * half} ${bx + uy * half},${by - ux * half}`,
+      fill: color, stroke: color, 'stroke-width': 0.25, 'stroke-linejoin': 'round',
+    }, parent);
+  }
+  function backPoint(pts) {
+    let acc = 0;
+    for (let i = pts.length - 1; i > 0; i--) {
+      acc += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      if (acc >= 2.2) return pts[i - 1];
+    }
+    return pts[0];
+  }
+
+  // 把手画的抖动路线变成顺滑的跑位线：先抽稀，再切角平滑
+  function simplify(pts, eps) {
+    if (pts.length < 3) return pts;
+    const a = pts[0], b = pts[pts.length - 1];
+    const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1;
+    let worst = 0, at = 0;
+    for (let i = 1; i < pts.length - 1; i++) {
+      const dist = Math.abs(dy * (pts[i][0] - a[0]) - dx * (pts[i][1] - a[1])) / len;
+      if (dist > worst) { worst = dist; at = i; }
+    }
+    if (worst <= eps) return [a, b];
+    return simplify(pts.slice(0, at + 1), eps).slice(0, -1).concat(simplify(pts.slice(at), eps));
+  }
+  function smooth(pts) {
+    let p = simplify(pts, 0.9);
+    for (let k = 0; k < 3 && p.length > 2; k++) {
+      const q = [p[0]];
+      for (let i = 0; i < p.length - 1; i++) {
+        const a = p[i], b = p[i + 1];
+        q.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25], [a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+      }
+      q.push(p[p.length - 1]);
+      p = q;
+    }
+    return p.map(v => [r2(v[0]), r2(v[1])]);
+  }
+
+  function badge(p, n, parent) {
+    el('circle', { cx: p[0], cy: p[1], r: 1.15, fill: '#0f1f17', stroke: '#ffffff', 'stroke-width': 0.15 }, parent);
+    const t = el('text', { x: p[0], y: p[1], 'font-size': 1.5, 'text-anchor': 'middle', 'dominant-baseline': 'central', fill: '#ffffff', 'font-weight': 700, 'pointer-events': 'none' }, parent);
+    t.textContent = n;
+    upright(t, p[0], p[1]);
+  }
+
+  // ---------- 渲染 ----------
+  function renderLines() {
+    gLines.textContent = '';
+    const showOrder = Object.keys(state.routes).length + state.passes.length > 1;
+    for (const t of state.tokens) {
+      const pts = state.routes[t.id];
+      if (!pts || pts.length < 2) continue;
+      const color = TEAM[t.team].trail;
+      const g = el('g', { 'data-line': 'r:' + t.id }, gLines);
+      el('polyline', { points: ptsAttr(pts), fill: 'none', stroke: color, 'stroke-width': 0.45,
+        'stroke-dasharray': '1.2 1.1', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, g);
+      head(pts[pts.length - 1], backPoint(pts), color, g);
+      el('polyline', { points: ptsAttr(pts), fill: 'none', stroke: 'transparent', 'stroke-width': 3.6, 'stroke-linecap': 'round' }, g);
+      if (showOrder) badge(along(pts, measure(pts), 0.5), routeStep(t.id), g);
+    }
+    for (const s of passSegments()) {
+      const d = `M${s.from[0]} ${s.from[1]} Q${r2(s.c[0])} ${r2(s.c[1])} ${s.to[0]} ${s.to[1]}`;
+      const g = el('g', { 'data-line': 'p:' + s.i }, gLines);
+      el('path', { d, fill: 'none', stroke: '#ffffff', 'stroke-width': 0.42, 'stroke-dasharray': '0.1 1', 'stroke-linecap': 'round' }, g);
+      head(s.to, bez(s, 0.85), '#ffffff', g);
+      el('path', { d, fill: 'none', stroke: 'transparent', 'stroke-width': 3.6, 'stroke-linecap': 'round' }, g);
+      if (showOrder) badge(bez(s, 0.5), passStep(state.passes[s.i]), g);
+    }
+  }
+
+  function renderTokens() {
+    gTokens.textContent = '';
+    // 飞盘画在最上面
+    const order = state.tokens.filter(t => t.kind !== 'disc').concat(state.tokens.filter(t => t.kind === 'disc'));
+    for (const t of order) {
+      const g = el('g', { class: 'token', 'data-id': t.id, transform: `translate(${t.x} ${t.y})` }, gTokens);
+      el('circle', { r: HIT, fill: 'transparent' }, g);
+      if (t.kind === 'disc') {
+        el('circle', { r: 1.45, fill: '#ffffff', stroke: '#e11d48', 'stroke-width': 0.42 }, g);
+        el('circle', { r: 0.72, fill: 'none', stroke: '#e11d48', 'stroke-width': 0.2 }, g);
+        continue;
+      }
+      const c = TEAM[t.team];
+      if (t.label[0] === 'H') el('rect', { x: -1.8, y: -1.8, width: 3.6, height: 3.6, rx: 0.55, fill: c.fill, stroke: c.stroke, 'stroke-width': 0.22 }, g);
+      else el('circle', { r: R, fill: c.fill, stroke: c.stroke, 'stroke-width': 0.22 }, g);
+      if (t.label) {
+        const tx = el('text', { 'font-size': 1.85, 'text-anchor': 'middle', 'dominant-baseline': 'central', fill: c.text }, g);
+        tx.textContent = t.label;
+        upright(tx, 0, 0);
+      }
+    }
+  }
+
+  // Open side / Block side：以飞盘所在的竖线为界。
+  // open 半边的边框画成虚线，block 半边的边框加粗，中线始终是虚线。
+  function renderSide(x) {
+    const g = $('side'), d = disc();
+    g.textContent = '';
+    const on = !!(state.open && d);
+    $('frame').setAttribute('stroke', on ? 'none' : '#fff');
+    if (!on) return;
+    if (x === undefined) x = d.x;
+    x = clamp(x, 0, W);
+    const half = (edge, open) => el('path', {
+      d: `M${x} 0H${edge}V${H}H${x}`, fill: 'none', stroke: '#fff', 'stroke-linejoin': 'round',
+      'stroke-width': open ? 0.3 : 1, 'stroke-dasharray': open ? '1.4 1.2' : 'none',
+    }, g);
+    half(0, state.open === 'l');
+    half(W, state.open === 'r');
+    el('line', { x1: x, y1: 0, x2: x, y2: H, stroke: '#fff', 'stroke-width': 0.25, 'stroke-dasharray': '1 1', opacity: 0.8 }, g);
+    const tag = (cx, open) => {
+      if (Math.abs(cx - x) < 3) return;
+      // 横屏时这行字贴在板的左边缘，改成左对齐以免伸出板外
+      const ty = land ? 1.2 : 2.6;
+      const t = el('text', { class: 'faint', x: cx, y: ty, 'font-size': 1.7, 'text-anchor': land ? 'start' : 'middle', 'dominant-baseline': 'central' }, g);
+      t.textContent = open ? 'OPEN' : 'BLOCK';
+      upright(t, cx, ty);
+    };
+    tag(x / 2, state.open === 'l');
+    tag((x + W) / 2, state.open === 'r');
+  }
+
+  function render() {
+    renderSide();
+    $('ez').style.display = state.ez ? '' : 'none';
+    $('hint').style.display = state.tokens.length ? 'none' : '';
+    $('hint').textContent = L('hint');
+    upright($('hint'), 20, 40);
+    document.querySelectorAll('#ez text').forEach(n => { n.textContent = L('ez'); n.setAttribute('font-size', land ? 1.7 : 2.6); upright(n, +n.getAttribute('x'), +n.getAttribute('y')); });
+    document.title = L('title');
+    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : lang;
+    svg.setAttribute('aria-label', L('title'));
+    renderLines();
+    renderTokens();
+  }
+
+  let toastTimer = 0;
+  function toast(msg, ms) {
+    const t = $('toast');
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), ms || 2600);
+  }
+
+  // ---------- 弹出菜单 ----------
+  // rows: [[{label, fn, cls, bg, fg, disabled}]]
+  function showMenu(cx, cy, rows) {
+    menu.textContent = '';
+    for (const row of rows) {
+      const r = document.createElement('div');
+      r.className = 'row';
+      for (const it of row) {
+        const b = document.createElement('button');
+        b.textContent = it.label;
+        if (it.cls) b.className = it.cls;
+        if (it.text) { b.disabled = true; b.style.cssText = 'background:none;border:0;opacity:1;min-width:0;padding:0 4px;flex:0'; }
+        if (it.bg) { b.style.background = it.bg; b.style.color = it.fg; b.style.borderColor = it.fg === '#ffffff' ? '#ffffff55' : it.bg; }
+        if (it.aria) b.setAttribute('aria-label', it.aria);
+        if (!it.text) b.disabled = !!it.disabled;
+        b.addEventListener('click', () => { hideMenu(); it.fn(); });
+        r.appendChild(b);
+      }
+      menu.appendChild(r);
+    }
+    // 先放回左上角再量尺寸，否则靠近屏幕边缘时会被挤窄
+    menu.style.left = '0px'; menu.style.top = '0px';
+    menu.classList.add('show');
+    const mw = menu.offsetWidth, mh = menu.offsetHeight;
+    const left = clamp(cx - mw / 2, 8, innerWidth - mw - 8);
+    let top = cy + 26;
+    if (top + mh > innerHeight - 8) top = cy - mh - 26;
+    menu.style.left = left + 'px';
+    menu.style.top = clamp(top, 8, innerHeight - mh - 8) + 'px';
+  }
+  function hideMenu() { menu.classList.remove('show'); }
+  const menuOpen = () => menu.classList.contains('show');
+
+  function addPlayer(team, role, x, y) {
+    act(() => {
+      const n = state.tokens.filter(t => t.kind === 'p' && t.team === team && t.label[0] === role).length + 1;
+      state.tokens.push({ id: 'k' + (++state.seq), kind: 'p', team, label: role ? role + n : '', x, y });
+    });
+  }
+
+  function boardMenu(cx, cy, x, y) {
+    const add = (team, role) => ({
+      label: role || '●', aria: L(team === 'a' ? 'teamA' : 'teamB') + ' ' + (role || L('noLabel')),
+      bg: TEAM[team].fill, fg: TEAM[team].text, fn: () => addPlayer(team, role, x, y),
+    });
+    const hasLines = Object.keys(state.routes).length || state.passes.length;
+    showMenu(cx, cy, [
+      [add('a', 'H'), add('a', 'C'), add('a', '')],
+      [add('b', 'H'), add('b', 'C'), add('b', '')],
+      [
+        { label: L('disc'), disabled: !!disc(), fn: () => act(() => state.tokens.push({ id: 'k' + (++state.seq), kind: 'disc', x, y })) },
+        { label: L(state.ez ? 'rmEz' : 'addEz'), fn: () => act(() => { state.ez = !state.ez; }) },
+      ],
+      [
+        { label: '▶ ' + L('play'), aria: L('play'), cls: 'primary', disabled: !hasLines, fn: play },
+        { label: L('undo'), disabled: !undoStack.length, fn: () => { state = JSON.parse(undoStack.pop()); save(); render(); } },
+        { label: L('reset'), cls: 'danger', disabled: !state.tokens.length && !state.ez,
+          fn: () => act(() => { state = { ez: false, seq: 0, tokens: [], routes: {}, rstep: {}, passes: [] }; }) },
+      ],
+      Object.keys(LANG_NAMES).map(k => ({ label: LANG_NAMES[k], cls: k === lang ? 'primary' : '', fn: () => setLang(k) })),
+    ]);
+  }
+
+  function removeToken(id) {
+    act(() => {
+      const t = tok(id);
+      state.tokens = state.tokens.filter(x => x.id !== id);
+      dropRoute(id);
+      state.passes = t.kind === 'disc' ? [] : state.passes.filter(p => p.to !== id);
+    });
+  }
+
+  function tokenMenu(cx, cy, t) {
+    if (t.kind === 'disc') {
+      const side = (label, v) => ({ label, cls: state.open === v ? 'primary' : '', fn: () => act(() => { state.open = v; }) });
+      showMenu(cx, cy, [
+        [
+          { label: L('pass'), fn: () => { mode = { type: 'pass' }; toast(L('tapRecv')); } },
+          { label: L('del'), cls: 'danger', fn: () => removeToken(t.id) },
+        ],
+        // 横屏时板转了 90°：数据里的"左"显示在下方，"右"显示在上方
+        [side(L(land ? 'openD' : 'openL'), 'l'), side(L(land ? 'openU' : 'openR'), 'r'), { label: L('openOff'), disabled: !state.open, fn: () => act(() => { delete state.open; }) }],
+      ]);
+    } else {
+      showMenu(cx, cy, [[
+        { label: L('draw'), fn: () => { mode = { type: 'route', id: t.id }; toast(L('drawHint')); } },
+        { label: L('del'), cls: 'danger', fn: () => removeToken(t.id) },
+      ]]);
+    }
+  }
+
+  function lineMenu(cx, cy, key) {
+    const [kind, ref] = key.split(':');
+    const clearAll = { label: L('clearLines'), cls: 'danger', fn: () => act(() => { state.routes = {}; state.rstep = {}; state.passes = []; }) };
+    // 顺序：选这条线在第几步进行
+    const now = kind === 'r' ? routeStep(ref) : passStep(state.passes[+ref]);
+    const order = [{ label: L('order'), text: true }];
+    for (let n = 1; n <= Math.min(6, maxStep() + 1); n++) {
+      order.push({ label: String(n), cls: n === now ? 'primary' : '', fn: () => act(() => {
+        if (kind === 'r') { state.rstep = state.rstep || {}; state.rstep[ref] = n; }
+        else state.passes[+ref].step = n;
+      }) });
+    }
+    if (kind === 'r') {
+      showMenu(cx, cy, [order, [{ label: L('delLine'), fn: () => act(() => dropRoute(ref)) }, clearAll]]);
+    } else {
+      const i = +ref, set = c => () => act(() => { state.passes[i].curve = c; });
+      showMenu(cx, cy, [
+        order,
+        [{ label: L('straight'), fn: set(0) }, { label: L('arcL'), fn: set(1) }, { label: L('arcR'), fn: set(-1) }],
+        [{ label: L('delLine'), fn: () => act(() => { state.passes.splice(i, 1); }) }, clearAll],
+      ]);
+    }
+  }
+
+  // ---------- 指针 ----------
+  const drags = new Map();
+  let gestureBefore = null;
+  let lastTap = { x: 0, y: 0, time: 0 };
+
+  function toField(e) {
+    const p = svg.createSVGPoint();
+    p.x = e.clientX; p.y = e.clientY;
+    const q = p.matrixTransform(world.getScreenCTM().inverse());
+    return [q.x, q.y];
+  }
+
+  svg.addEventListener('pointerdown', e => {
+    if (e.button > 0) return;
+    e.preventDefault();
+    if (playing || ended) { stopPlay(); return; }
+    const wasOpen = menuOpen();
+    hideMenu();
+
+    const [x, y] = toField(e);
+    const tokenEl = e.target.closest && e.target.closest('.token');
+    const lineEl = e.target.closest && e.target.closest('[data-line]');
+    let d;
+
+    if (mode && mode.type === 'pass') {
+      mode = null;
+      const t = tokenEl && tok(tokenEl.dataset.id);
+      if (t && t.kind === 'p') act(() => {
+        // 默认顺序：跟接盘人的跑位同一步，且排在上一传之后
+        const prev = state.passes[state.passes.length - 1];
+        const step = Math.max(state.routes[t.id] ? routeStep(t.id) : 1, prev ? passStep(prev) + 1 : 1);
+        state.passes.push({ to: t.id, curve: 1, step });
+      });
+      else toast(L('passCancel'));
+      return;
+    }
+    if (mode && mode.type === 'route') {
+      const t = tok(mode.id);
+      d = { kind: 'draw', id: t.id, pts: [[t.x, t.y]] };
+      d.line = el('polyline', { points: '', fill: 'none', stroke: TEAM[t.team].trail, 'stroke-width': 0.45,
+        'stroke-dasharray': '1.2 1.1', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, gLines);
+    } else if (tokenEl) {
+      const id = tokenEl.dataset.id;
+      for (const o of drags.values()) if (o.id === id) return;
+      const t = tok(id);
+      d = { kind: 'token', id, g: tokenEl, ox: t.x - x, oy: t.y - y, moved: false };
+    } else if (lineEl) {
+      d = { kind: 'line', key: lineEl.dataset.line };
+    } else {
+      d = { kind: 'empty', wasOpen, x, y };
+    }
+    d.sx = e.clientX; d.sy = e.clientY;
+
+    if (drags.size === 0) gestureBefore = JSON.stringify(state);
+    drags.set(e.pointerId, d);
+    try { svg.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+
+  svg.addEventListener('pointermove', e => {
+    const d = drags.get(e.pointerId);
+    if (!d) return;
+    e.preventDefault();
+    const [x, y] = toField(e);
+
+    if (d.kind === 'draw') {
+      const last = d.pts[d.pts.length - 1];
+      const nx = r2(clamp(x, 0, W)), ny = r2(clamp(y, 0, H));
+      if (Math.hypot(nx - last[0], ny - last[1]) >= 0.4) {
+        d.pts.push([nx, ny]);
+        d.line.setAttribute('points', ptsAttr(d.pts));
+      }
+    } else if (d.kind === 'token') {
+      if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6) return;
+      d.moved = true;
+      const t = tok(d.id);
+      const nx = r2(clamp(x + d.ox, 0, W)), ny = r2(clamp(y + d.oy, 0, H));
+      const dx = nx - t.x, dy = ny - t.y;
+      t.x = nx; t.y = ny;
+      // 跑位线跟着选手一起平移
+      const route = state.routes[d.id];
+      if (route) for (const p of route) { p[0] = r2(p[0] + dx); p[1] = r2(p[1] + dy); }
+      d.g.setAttribute('transform', `translate(${nx} ${ny})`);
+      if (t.kind === 'disc') renderSide();
+      renderLines();
+    }
+  });
+
+  function pathLength(pts) {
+    let n = 0;
+    for (let i = 1; i < pts.length; i++) n += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    return n;
+  }
+
+  function endDrag(e) {
+    const d = drags.get(e.pointerId);
+    if (!d) return;
+    drags.delete(e.pointerId);
+    const still = Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 8;
+    const up = e.type === 'pointerup';
+    let open = null;
+
+    if (d.kind === 'draw') {
+      mode = null;
+      if (pathLength(d.pts) >= 1.5) state.routes[d.id] = smooth(d.pts);
+      else toast(L('drawCancel'));
+    } else if (d.kind === 'token') {
+      if (!d.moved && up) open = () => tokenMenu(e.clientX, e.clientY, tok(d.id));
+    } else if (d.kind === 'line') {
+      if (still && up) open = () => lineMenu(e.clientX, e.clientY, d.key);
+    } else if (d.kind === 'empty' && still && up && !d.wasOpen) {
+      // 双击空白处：打开总菜单
+      const now = performance.now();
+      if (now - lastTap.time < 400 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
+        lastTap.time = 0;
+        const fx = clamp(d.x, 2, W - 2), fy = clamp(d.y, 2, H - 2);
+        open = () => boardMenu(e.clientX, e.clientY, r2(fx), r2(fy));
+      } else {
+        lastTap = { x: e.clientX, y: e.clientY, time: now };
+      }
+    }
+
+    if (drags.size === 0 && gestureBefore !== null) {
+      commit(gestureBefore);
+      gestureBefore = null;
+      render();
+    }
+    if (open) open();
+  }
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', endDrag);
+
+  document.addEventListener('gesturestart', e => e.preventDefault());
+  document.addEventListener('touchmove', e => { if (e.target.closest('#board')) e.preventDefault(); }, { passive: false });
+  // 点到板外的空白也收起菜单
+  document.addEventListener('pointerdown', e => { if (!e.target.closest('#menu') && !e.target.closest('#board')) hideMenu(); });
+
+  // ---------- 播放 ----------
+  const ease = f => f < 0.5 ? 2 * f * f : 1 - Math.pow(-2 * f + 2, 2) / 2;
+  // 跑动的速度曲线：起步加速，中段匀速，到位前减速
+  function run(f) {
+    const a = 0.22, b = 0.16, v = 1 / (1 - a / 2 - b / 2);
+    if (f < a) return v * f * f / (2 * a);
+    if (f <= 1 - b) return v * (f - a / 2);
+    return 1 - v * (1 - f) * (1 - f) / (2 * b);
+  }
+  function measure(pts) {
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    return cum;
+  }
+  function along(pts, cum, f) {
+    const target = cum[cum.length - 1] * f;
+    let i = 1;
+    while (i < cum.length - 1 && cum[i] < target) i++;
+    const seg = cum[i] - cum[i - 1] || 1, u = (target - cum[i - 1]) / seg;
+    return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * u, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * u];
+  }
+  const place = (id, p) => {
+    const g = gTokens.querySelector(`[data-id="${id}"]`);
+    if (g) g.setAttribute('transform', `translate(${p[0].toFixed(2)} ${p[1].toFixed(2)})`);
+  };
+
+  // 所有选手同时跑；第一传在选手跑到位时送到，之后的传盘依次进行
+  function play() {
+    render();
+    const movers = state.tokens.filter(t => state.routes[t.id]).map(t => {
+      const pts = state.routes[t.id], cum = measure(pts);
+      // 用时按路线长度算，跑得远就用得久
+      return { id: t.id, pts, cum, step: routeStep(t.id), ms: clamp(cum[cum.length - 1] / RUN_SPEED * 1000, 500, 5000) };
+    });
+    const segs = passSegments(), d = disc();
+    for (const s of segs) {
+      s.step = passStep(state.passes[s.i]);
+      s.to_id = state.passes[s.i].to;
+      s.ms = clamp(Math.hypot(s.to[0] - s.from[0], s.to[1] - s.from[1]) / PASS_SPEED * 1000, 450, 1300);
+    }
+    const stepNos = [...new Set(movers.map(m => m.step).concat(segs.map(s => s.step)))].sort((a, b) => a - b);
+    if (!stepNos.length) { toast(L('needLines')); return; }
+
+    // 排时间表：一步一步来；同一步里选手同时起跑，传盘在接盘人跑到位时送到
+    let T = 0;
+    for (const n of stepNos) {
+      let len = 0, cursor = 0;
+      for (const m of movers) if (m.step === n) { m.t0 = T; len = Math.max(len, m.ms); }
+      for (const s of segs) if (s.step === n) {
+        const recv = movers.find(m => m.id === s.to_id && m.step === n);
+        const start = Math.max(cursor, recv ? recv.ms - s.ms : 0);
+        s.t0 = T + start;
+        cursor = start + s.ms + PASS_GAP;
+        len = Math.max(len, start + s.ms);
+      }
+      T += len + STEP_GAP;
+    }
+    const total = T - STEP_GAP;
+
+    const my = ++playId;
+    playing = true; ended = false;
+    gLines.style.display = 'none';   // 播放时不显示轨迹线
+    toast(L('playing'), 1500);
+    const start = performance.now() + 500;
+    const frame = () => {
+      if (my !== playId) return;
+      const now = Math.max(0, performance.now() - start);
+      for (const m of movers) place(m.id, along(m.pts, m.cum, run(clamp((now - m.t0) / m.ms, 0, 1))));
+      if (d && segs.length) {
+        let p = segs[0].from, last = -1;
+        for (const s of segs) if (now >= s.t0 && s.t0 >= last) { last = s.t0; p = bez(s, ease(Math.min(1, (now - s.t0) / s.ms))); }
+        place(d.id, p);
+        if (state.open) renderSide(p[0]);   // 中线跟着飞盘走
+      }
+      if (now >= total) {
+        playing = false; ended = true;
+        toast(L('ended'), 4000);
+        return;
+      }
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  }
+
+  function stopPlay() {
+    playId++;
+    playing = false; ended = false;
+    gLines.style.display = '';
+    $('toast').classList.remove('show');
+    render();
+  }
+
+  applyOrient();
+  render();
+})();
+</script>
+</body>
+</html>
