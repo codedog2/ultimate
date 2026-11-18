@@ -3,72 +3,199 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#14251b">
+<meta name="theme-color" content="#11201a">
 <title>飞盘战术板</title>
 <style>
-  :root { --bg: #14251b; --panel: #1c3326; --line: #35594a; --ink: #e8f1ea; --accent: #facc15; }
+  :root {
+    --bg: #11201a; --panel: rgba(22, 40, 31, .97); --line: rgba(255,255,255,.1);
+    --ink: #eef5f0; --dim: #9fb8a8; --accent: #facc15; --danger: #fca5a5;
+  }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
     height: 100%; margin: 0; background: var(--bg); color: var(--ink);
-    font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-family: system-ui, -apple-system, "PingFang SC", "Hiragino Sans", "Microsoft YaHei", sans-serif;
     overscroll-behavior: none; overflow: hidden;
     -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
   }
+  button { font: inherit; color: inherit; touch-action: manipulation; cursor: pointer; }
+  svg.i { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
   #stage {
     height: 100vh; height: 100dvh;
-    padding: max(4px, env(safe-area-inset-top)) 4px max(4px, env(safe-area-inset-bottom));
+    padding: max(6px, env(safe-area-inset-top)) 6px max(6px, env(safe-area-inset-bottom));
   }
   #board { display: block; width: 100%; height: 100%; touch-action: none; }
+  .faint { fill: rgba(255,255,255,.32); font-weight: 700; pointer-events: none; }
+
+  /* 标识：拿起放大、放下回弹 */
+  .token .body { transform-box: fill-box; transform-origin: center; filter: url(#shadow); transition: transform .14s ease-out; }
+  .token.lifted .body { transform: scale(1.2); filter: url(#lift); }
+  .token.drop .body { animation: drop .32s cubic-bezier(.3, 1.7, .5, 1); }
+  @keyframes drop { from { transform: scale(1.2); } }
   .token text { font-weight: 700; pointer-events: none; }
-  .faint { fill: rgba(255,255,255,.3); font-weight: 700; pointer-events: none; }
+  /* 选中：贴着选手圆标的淡黄细圈，轻微呼吸 */
+  .selring { fill: none; stroke: #fde68a; stroke-width: .26; opacity: .85; animation: ring 1.6s ease-in-out infinite; pointer-events: none; }
+  @keyframes ring { 50% { opacity: .4; } }
+  .ripple { fill: none; stroke: #fff; stroke-width: .3; transform-box: fill-box; transform-origin: center; animation: rip .45s ease-out forwards; pointer-events: none; }
+  @keyframes rip { from { transform: scale(.6); opacity: .8; } to { transform: scale(2.2); opacity: 0; } }
+  [data-line].sel > :first-child { stroke-width: .85px; }
 
+  /* 面板菜单 */
   #menu {
-    position: fixed; display: none; flex-direction: column; gap: 6px; padding: 8px;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
-    box-shadow: 0 8px 28px rgba(0,0,0,.5); z-index: 10;
+    position: fixed; display: none; flex-direction: column; gap: 10px; padding: 12px;
+    max-width: calc(100vw - 16px); background: var(--panel); border: 1px solid var(--line); border-radius: 20px;
+    box-shadow: 0 14px 40px rgba(0,0,0,.55); z-index: 10;
+    transform-origin: var(--ox, 50%) var(--oy, 0);
   }
-  #menu.show { display: flex; }
-  #menu { max-width: calc(100vw - 16px); }
-  #menu .row { display: flex; gap: 6px; flex-wrap: wrap; }
-  #menu button {
-    flex: 1 0 auto; min-width: 52px; min-height: 44px; padding: 0 12px; border-radius: 10px;
-    border: 1px solid var(--line); background: #27483a; color: var(--ink);
-    font: inherit; font-size: 14px; font-weight: 600; white-space: nowrap; touch-action: manipulation;
+  #menu.show { display: flex; animation: pop .17s ease-out; }
+  @keyframes pop { from { opacity: 0; transform: scale(.9); } }
+  .sec { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .sec + .sec { padding-top: 10px; border-top: 1px solid var(--line); }
+  .sec-title { font-size: 11px; color: var(--dim); margin-right: 2px; min-width: 30px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .chip {
+    width: 46px; height: 46px; border-radius: 50%; border: 2px solid rgba(255,255,255,.9); padding: 0;
+    color: #fff; font-weight: 800; font-size: 15px;
+    box-shadow: inset 0 2px 5px rgba(255,255,255,.28), 0 3px 8px rgba(0,0,0,.35);
   }
-  #menu button:disabled { opacity: .35; }
-  #menu button:not(:disabled):active { filter: brightness(1.3); }
-  #menu button.danger { color: #fca5a5; }
-  #menu button.primary { background: var(--accent); border-color: var(--accent); color: #1f1a00; }
+  .act {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    min-width: 64px; height: 60px; padding: 0 8px; border: 0; border-radius: 14px;
+    background: rgba(255,255,255,.07); font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  }
+  .pill {
+    display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px; border: 0; border-radius: 20px;
+    background: rgba(255,255,255,.08); font-size: 13px; font-weight: 600; white-space: nowrap;
+  }
+  .pill svg.i { width: 18px; height: 18px; }
+  .num { width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgba(255,255,255,.08); font-weight: 800; font-size: 15px; }
+  .act.on, .pill.on, .num.on { background: rgba(250,204,21,.18); color: var(--accent); }
+  .act.primary { background: var(--accent); color: #1f1a00; }
+  .act.danger, .pill.danger { color: var(--danger); }
+  #menu button:disabled { opacity: .3; cursor: default; }
+  #menu button:not(:disabled):active, #radial .rb:active i { transform: scale(.93); }
 
-  #toast {
-    position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
-    max-width: 88vw; padding: 9px 16px; border-radius: 20px; background: rgba(0,0,0,.82);
-    font-size: 13px; text-align: center; pointer-events: none; opacity: 0; transition: opacity .25s; z-index: 11;
+  /* 环绕菜单 */
+  #radial { position: fixed; inset: 0; pointer-events: none; z-index: 10; display: none; }
+  #radial.show { display: block; }
+  #radial .rb {
+    position: absolute; width: 84px; margin: -24px 0 0 -42px; padding: 0; border: 0; background: none;
+    display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: auto;
+    font-size: 11.5px; font-weight: 700; white-space: nowrap; text-shadow: 0 1px 3px rgba(0,0,0,.9);
+    animation: fly .24s cubic-bezier(.2, 1.35, .4, 1) both;
   }
-  #toast.show { opacity: 1; }
+  #radial.still .rb { animation: none; }
+  @keyframes fly { from { transform: translate(var(--fx), var(--fy)) scale(.3); opacity: 0; } }
+  #radial .rb i {
+    width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--panel); border: 1px solid rgba(255,255,255,.16); box-shadow: 0 6px 18px rgba(0,0,0,.5);
+    transition: transform .1s;
+  }
+  #radial .rb.on i { background: var(--accent); color: #1f1a00; border-color: var(--accent); }
+  #radial .rb.danger i { color: var(--danger); }
+
+  /* 播放控制条 */
+  #bar {
+    position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 9;
+    display: flex; align-items: center; gap: 6px; padding: 6px; border-radius: 30px;
+    background: var(--panel); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.5);
+    transform: translate(-50%, 160%); transition: transform .28s cubic-bezier(.2, 1.2, .4, 1);
+  }
+  #bar.show { transform: translate(-50%, 0); }
+  #bar button {
+    height: 46px; min-width: 46px; padding: 0 12px; border: 0; border-radius: 23px;
+    background: rgba(255,255,255,.08); display: flex; align-items: center; justify-content: center; font-weight: 800;
+  }
+  #bar #pb-play { width: 54px; background: var(--accent); color: #1f1a00; }
+  #pb-mid { display: flex; flex-direction: column; gap: 6px; padding: 0 6px; min-width: 96px; }
+  #pb-step { font-size: 13px; font-weight: 700; text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  #pb-track { height: 4px; border-radius: 2px; background: rgba(255,255,255,.14); overflow: hidden; }
+  #pb-fill { height: 100%; width: 0; background: var(--accent); border-radius: 2px; }
+
+  /* 提示 */
+  #toast {
+    position: fixed; left: 50%; top: calc(16px + env(safe-area-inset-top)); transform: translate(-50%, -8px);
+    max-width: 88vw; padding: 10px 18px; border-radius: 22px; background: rgba(0,0,0,.85);
+    font-size: 13.5px; text-align: center; pointer-events: none; opacity: 0; transition: opacity .2s, transform .2s; z-index: 12;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* 首次使用说明 */
+  #intro {
+    position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center;
+    padding: 20px; background: rgba(5, 12, 9, .6);
+  }
+  #intro.show { display: flex; }
+  #intro .card {
+    width: min(340px, 100%); padding: 22px 20px 18px; border-radius: 22px; background: var(--panel);
+    border: 1px solid var(--line); box-shadow: 0 20px 50px rgba(0,0,0,.6); animation: pop .2s ease-out;
+  }
+  #intro h2 { margin: 0 0 16px; font-size: 18px; }
+  #intro .row { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; font-size: 14px; line-height: 1.45; }
+  #intro .row i { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none; background: rgba(250,204,21,.14); color: var(--accent); }
+  #intro .ok { width: 100%; height: 46px; margin-top: 6px; border: 0; border-radius: 14px; background: var(--accent); color: #1f1a00; font-weight: 800; font-size: 15px; }
 </style>
 </head>
 <body>
 <div id="stage">
   <svg id="board" viewBox="-1 -1 42 82" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <pattern id="mow" patternUnits="userSpaceOnUse" width="40" height="10">
+        <rect width="40" height="5" fill="#ffffff" opacity=".045"/>
+      </pattern>
+      <radialGradient id="gloss" cx=".35" cy=".3" r=".75">
+        <stop offset="0" stop-color="#fff" stop-opacity=".42"/>
+        <stop offset=".5" stop-color="#fff" stop-opacity=".05"/>
+        <stop offset="1" stop-color="#000" stop-opacity=".18"/>
+      </radialGradient>
+      <filter id="shadow" x="-60%" y="-60%" width="220%" height="220%">
+        <feDropShadow dx="0" dy="0" stdDeviation=".3" flood-color="#000" flood-opacity=".45"/>
+      </filter>
+      <filter id="lift" x="-80%" y="-80%" width="260%" height="260%">
+        <feDropShadow dx="0" dy="0" stdDeviation=".8" flood-color="#000" flood-opacity=".6"/>
+      </filter>
+      <filter id="boardShadow" x="-10%" y="-10%" width="120%" height="120%">
+        <feGaussianBlur stdDeviation=".8"/>
+      </filter>
+    </defs>
     <g id="world">
-    <rect id="frame" x="0" y="0" width="40" height="80" rx="0.8" fill="#2f8052" stroke="#fff" stroke-width="0.3"/>
-    <g id="ez" style="display:none">
-      <rect x="0.15" y="0.15" width="39.7" height="13.85" fill="#256843"/>
-      <rect x="0.15" y="66" width="39.7" height="13.85" fill="#256843"/>
-      <path d="M0 14h40M0 66h40" stroke="#fff" stroke-width="0.3"/>
-      <text class="faint" x="20" y="7" font-size="2.6" text-anchor="middle" dominant-baseline="central">得分区</text>
-      <text class="faint" x="20" y="73" font-size="2.6" text-anchor="middle" dominant-baseline="central">得分区</text>
-    </g>
-    <g id="side" pointer-events="none"></g>
-    <text id="hint"class="faint" x="20" y="40" font-size="2.2" text-anchor="middle" dominant-baseline="central">双击空白处添加标识</text>
-    <g id="lines"></g>
-    <g id="tokens"></g>
+      <rect x="0" y="0.5" width="40" height="80" rx="1" fill="#000" opacity=".5" filter="url(#boardShadow)"/>
+      <rect id="frame" x="0" y="0" width="40" height="80" rx="1" fill="#2e7d4f" stroke="#fff" stroke-width="0.3"/>
+      <rect x="0" y="0" width="40" height="80" rx="1" fill="url(#mow)" pointer-events="none"/>
+      <g id="ez" style="display:none">
+        <rect x="0.15" y="0.15" width="39.7" height="13.85" fill="#000" opacity=".12"/>
+        <rect x="0.15" y="66" width="39.7" height="13.85" fill="#000" opacity=".12"/>
+        <path d="M0 14h40M0 66h40" stroke="#fff" stroke-width="0.3"/>
+        <text class="faint" x="20" y="7" font-size="2.6" text-anchor="middle" dominant-baseline="central"></text>
+        <text class="faint" x="20" y="73" font-size="2.6" text-anchor="middle" dominant-baseline="central"></text>
+      </g>
+      <g id="side" pointer-events="none"></g>
+      <text id="hint" class="faint" x="20" y="40" font-size="2.2" text-anchor="middle" dominant-baseline="central"></text>
+      <g id="lines"></g>
+      <g id="trail" pointer-events="none"></g>
+      <g id="tokens"></g>
+      <g id="fx" pointer-events="none"></g>
     </g>
   </svg>
 </div>
 <div id="menu"></div>
+<div id="radial"></div>
+<div id="bar">
+  <button id="pb-play"></button>
+  <div id="pb-mid"><div id="pb-step"></div><div id="pb-track"><div id="pb-fill"></div></div></div>
+  <button id="pb-speed"></button>
+  <button id="pb-close"></button>
+</div>
 <div id="toast" role="status"></div>
+<div id="intro" role="dialog" aria-modal="true">
+  <div class="card">
+    <h2 id="in-title"></h2>
+    <div class="row"><i id="in-i1"></i><span id="in-1"></span></div>
+    <div class="row"><i id="in-i2"></i><span id="in-2"></span></div>
+    <div class="row"><i id="in-i3"></i><span id="in-3"></span></div>
+    <button class="ok" id="in-ok"></button>
+  </div>
+</div>
 
 <script>
 (() => {
@@ -76,55 +203,91 @@
   const KEY = 'frisbee-board-v3';
   const W = 40, H = 80;
   const TEAM = {
-    a: { fill: '#1e3a8a', stroke: '#ffffff', text: '#ffffff', trail: '#a5c8ff' },
-    b: { fill: '#facc15', stroke: '#3b2f00', text: '#1f1a00', trail: '#fde047' },
+    a: { fill: '#1e40af', text: '#ffffff', trail: '#a5c8ff' },   // 蓝队
+    b: { fill: '#dc2626', text: '#ffffff', trail: '#fca5a5' },   // 红队
   };
-  const R = 1.9, HIT = 2.7;
-  const RUN_SPEED = 20, PASS_SPEED = 42;   // 板上单位 / 秒
-  const PASS_GAP = 200, STEP_GAP = 350;
+  const R = 1.9, HIT = 2.7, HOLD_R = 4.5, HOLD_OFF = 2.75;
+  const RUN_SPEED = 9, PASS_SPEED = 20;    // 板上单位 / 秒
+  const PASS_GAP = 350, STEP_GAP = 800, LEAD = 700;
+  const SPEEDS = [0.5, 1, 1.5];
 
   const $ = id => document.getElementById(id);
-  const svg = $('board'), world = $('world'), gLines = $('lines'), gTokens = $('tokens'), menu = $('menu');
+  const svg = $('board'), world = $('world'), gLines = $('lines'), gTokens = $('tokens'), gFx = $('fx');
+  const menu = $('menu'), rad = $('radial');
+
+  const store = {
+    get(k) { try { return localStorage.getItem(KEY + k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(KEY + k, v); } catch (e) {} },
+  };
+
+  // ---------- 图标 ----------
+  const ICONS = {
+    hold: '<ellipse cx="12" cy="12" rx="9" ry="5"/><ellipse cx="12" cy="12" rx="4.5" ry="2.2"/>',
+    pass: '<path d="M4 19c2-8 8-12 15-12"/><path d="M15 3.5l4.5 3.5-4 4.5"/>',
+    open: '<path d="M12 4H5v16h7" stroke-width="3"/><path d="M12 4h7v16h-7M12 4v16" stroke-dasharray="2 2.6"/>',
+    draw: '<path d="M4 20l1-4L16 5l3 3L8 19l-4 1z"/><path d="M14 7l3 3"/>',
+    del: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+    play: '<path d="M7 4.5v15l12-7.5z" fill="currentColor" stroke="none"/>',
+    pause: '<path d="M8 5v14M16 5v14" stroke-width="3.2"/>',
+    replay: '<path d="M20 12a8 8 0 1 1-2.4-5.7L20 8.5"/><path d="M20 3.5v5h-5"/>',
+    close: '<path d="M6 6l12 12M18 6L6 18"/>',
+    undo: '<path d="M8 5L4 9l4 4"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
+    ez: '<rect x="5" y="3" width="14" height="18" rx="1.5"/><path d="M5 7.5h14M5 16.5h14"/>',
+    reset: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5"/><path d="M4 3.5v5h5"/>',
+    lang: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.4 3 14.6 0 18M12 3c-3 3.4-3 14.6 0 18"/>',
+    help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.9-.9 1.6"/><path d="M12 17h.01" stroke-width="2.6"/>',
+    straight: '<path d="M5 19L19 5"/>',
+    arcL: '<path d="M5 19C5 10 10 5 19 5"/>',
+    arcR: '<path d="M5 19c9 0 14-5 14-14"/>',
+    clear: '<path d="M4 20h16"/><path d="M6.5 16.5l9-11 4 3.2-9 11H6.5z"/>',
+    dbl: '<circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="12" r="6" opacity=".6"/><circle cx="12" cy="12" r="9.5" opacity=".3"/>',
+    tap: '<path d="M9 11V5.5a1.8 1.8 0 0 1 3.6 0V10l4.6 1a2 2 0 0 1 1.5 2.3L17.6 20H10l-4-4.5a1.6 1.6 0 0 1 2.4-2.1L9 14"/>',
+    move: '<path d="M12 3v18M3 12h18M12 3l-3 3m3-3l3 3M12 21l-3-3m3 3l3-3M3 12l3-3m-3 3l3 3M21 12l-3-3m3 3l-3 3"/>',
+  };
+  const icon = n => `<svg class="i" viewBox="0 0 24 24">${ICONS[n]}</svg>`;
 
   // ---------- 语言：中文 / 日本語 / English ----------
   const I18N = {
-    zh: { title: '飞盘战术板', hint: '双击空白处添加标识', ez: '得分区', addEz: '加得分区', rmEz: '去掉得分区',
-      disc: '飞盘', play: '播放', undo: '撤销', reset: '重置', pass: '传盘', del: '删除', draw: '画线',
-      openL: 'Open 在左', openR: 'Open 在右', openU: 'Open 在上', openD: 'Open 在下', openOff: '不显示',
-      order: '顺序', delLine: '删除这条线', clearLines: '清除全部线', straight: '直线', arcL: '左弧', arcR: '右弧',
-      teamA: '蓝队', teamB: '黄队', noLabel: '无标识',
-      tapRecv: '点一下接盘的选手', drawHint: '在板上拖动，画出这名选手的跑位',
-      passCancel: '已取消传盘', drawCancel: '已取消画线', needLines: '先给选手画线，或者给飞盘加一次传盘',
-      playing: '播放中，点任意处停止', ended: '播放结束，点任意处回到起始位置' },
-    ja: { title: 'アルティメット戦術ボード', hint: 'ダブルタップでマーカーを追加', ez: 'エンドゾーン', addEz: 'エンドゾーン表示', rmEz: 'エンドゾーン非表示',
-      disc: 'ディスク', play: '再生', undo: '元に戻す', reset: 'リセット', pass: 'パス', del: '削除', draw: '線を描く',
-      openL: 'オープン：左', openR: 'オープン：右', openU: 'オープン：上', openD: 'オープン：下', openOff: '非表示',
-      order: '順番', delLine: 'この線を削除', clearLines: 'すべての線を消す', straight: '直線', arcL: '左カーブ', arcR: '右カーブ',
-      teamA: '青チーム', teamB: '黄チーム', noLabel: 'ラベルなし',
-      tapRecv: 'レシーバーをタップ', drawHint: 'ボード上をドラッグして走るコースを描く',
-      passCancel: 'パスをキャンセルしました', drawCancel: '線の描画をキャンセルしました', needLines: '先に選手のコースを描くか、ディスクにパスを追加してください',
-      playing: '再生中 — タップで停止', ended: '再生終了 — タップで最初の位置に戻る' },
-    en: { title: 'Ultimate Tactics Board', hint: 'Double-tap to add a marker', ez: 'End zone', addEz: 'Show end zones', rmEz: 'Hide end zones',
-      disc: 'Disc', play: 'Play', undo: 'Undo', reset: 'Reset', pass: 'Pass', del: 'Delete', draw: 'Draw route',
-      openL: 'Open: left', openR: 'Open: right', openU: 'Open: top', openD: 'Open: bottom', openOff: 'Hide',
-      order: 'Order', delLine: 'Delete line', clearLines: 'Clear all lines', straight: 'Straight', arcL: 'Curve L', arcR: 'Curve R',
-      teamA: 'Blue', teamB: 'Yellow', noLabel: 'no label',
-      tapRecv: 'Tap the receiver', drawHint: "Drag on the board to draw this player's route",
-      passCancel: 'Pass cancelled', drawCancel: 'Route cancelled', needLines: 'Draw a route or add a pass first',
-      playing: 'Playing — tap to stop', ended: 'Finished — tap to return to the start' },
+    zh: { title: '飞盘战术板', hint: '双击空白处添加选手', ez: '得分区', ezBtn: '得分区',
+      hold: '持盘', pass: '传盘', open: 'Open', draw: '画线', del: '删除',
+      play: '播放', pause: '暂停', replay: '重播', close: '结束', undo: '撤销', reset: '重置', lang: '语言', help: '帮助',
+      order: '顺序', delLine: '删除此线', clearLines: '清除全部', straight: '直线', arcL: '左弧', arcR: '右弧',
+      teamA: '蓝队', teamB: '红队', noLabel: '无标识',
+      tapRecv: '点一下接盘的选手', drawHint: '在板上拖动，画出这名选手的跑位', selfPass: '不能传给自己',
+      passCancel: '已取消传盘', drawCancel: '已取消画线', needLines: '先给选手画跑位线，或让持盘人传盘',
+      step: '第 {a} / {b} 步', introTitle: '使用方法',
+      intro1: '双击空白处：添加选手、播放、撤销等', intro2: '点选手：持盘、传盘、画跑位线、设置 Open',
+      intro3: '拖动可移动选手；点线可设置先后顺序', introOk: '开始使用' },
+    ja: { title: 'アルティメット戦術ボード', hint: 'ダブルタップで選手を追加', ez: 'エンドゾーン', ezBtn: 'エンドゾーン',
+      hold: 'ディスクを持つ', pass: 'パス', open: 'オープン', draw: 'コースを描く', del: '削除',
+      play: '再生', pause: '一時停止', replay: 'もう一度', close: '終了', undo: '元に戻す', reset: 'リセット', lang: '言語', help: 'ヘルプ',
+      order: '順番', delLine: 'この線を削除', clearLines: 'すべて消去', straight: '直線', arcL: '左カーブ', arcR: '右カーブ',
+      teamA: '青チーム', teamB: '赤チーム', noLabel: 'ラベルなし',
+      tapRecv: 'レシーバーをタップ', drawHint: 'ボード上をドラッグしてコースを描く', selfPass: '自分にはパスできません',
+      passCancel: 'パスをキャンセルしました', drawCancel: 'コースの描画をキャンセルしました', needLines: '先にコースを描くか、ホルダーからパスを出してください',
+      step: 'ステップ {a} / {b}', introTitle: '使い方',
+      intro1: '空白をダブルタップ：選手の追加・再生・元に戻すなど', intro2: '選手をタップ：ディスクを持つ・パス・コース・オープン',
+      intro3: 'ドラッグで移動。線をタップすると順番を設定', introOk: 'はじめる' },
+    en: { title: 'Ultimate Tactics Board', hint: 'Double-tap to add a player', ez: 'End zone', ezBtn: 'End zones',
+      hold: 'Hold disc', pass: 'Pass', open: 'Open', draw: 'Route', del: 'Delete',
+      play: 'Play', pause: 'Pause', replay: 'Replay', close: 'Exit', undo: 'Undo', reset: 'Reset', lang: 'Language', help: 'Help',
+      order: 'Order', delLine: 'Delete line', clearLines: 'Clear all', straight: 'Straight', arcL: 'Curve L', arcR: 'Curve R',
+      teamA: 'Blue', teamB: 'Red', noLabel: 'no label',
+      tapRecv: 'Tap the receiver', drawHint: "Drag on the board to draw this player's route", selfPass: "Can't pass to the same player",
+      passCancel: 'Pass cancelled', drawCancel: 'Route cancelled', needLines: 'Draw a route or make a pass first',
+      step: 'Step {a} / {b}', introTitle: 'How to use',
+      intro1: 'Double-tap empty space: add players, play, undo…', intro2: 'Tap a player: hold disc, pass, draw a route, open side',
+      intro3: 'Drag to move. Tap a line to set its order', introOk: 'Get started' },
   };
+  const LANGS = ['zh', 'ja', 'en'];
   const LANG_NAMES = { zh: '中文', ja: '日本語', en: 'English' };
   let lang = (() => {
-    try { const s = localStorage.getItem(KEY + '-lang'); if (I18N[s]) return s; } catch (e) {}
+    const s = store.get('-lang');
+    if (I18N[s]) return s;
     const n = (navigator.language || 'en').toLowerCase();
     return n.startsWith('zh') ? 'zh' : n.startsWith('ja') ? 'ja' : 'en';
   })();
   const L = key => I18N[lang][key];
-  function setLang(v) {
-    lang = v;
-    try { localStorage.setItem(KEY + '-lang', v); } catch (e) {}
-    render();
-  }
 
   // ---------- 横竖屏：数据始终按竖板存，横屏时整块板转 90° 显示 ----------
   let land = false;
@@ -134,29 +297,47 @@
     if (land) world.setAttribute('transform', 'translate(0 40) rotate(-90)');
     else world.removeAttribute('transform');
   }
-  // 横屏时把文字转回正向
+  // 横屏时把文字等转回正向
   function upright(node, x, y) {
     if (land) node.setAttribute('transform', `rotate(90 ${x} ${y})`);
     else node.removeAttribute('transform');
   }
   addEventListener('resize', () => { hideMenu(); applyOrient(); if (!playing && !ended) render(); });
 
-  // state = { ez, seq, tokens:[{id,kind:'p'|'disc',team,label,x,y}], routes:{id:[[x,y]..]}, passes:[{to,curve}] }
-  // routes[id]：该选手的跑位线，第一个点就是选手当前位置。
-  // passes：飞盘依次传给谁；curve 为 0 直线、1 / -1 两侧弧线。
-  let state = load() || { ez: false, seq: 0, tokens: [], routes: {}, passes: [] };
+  // ---------- 数据 ----------
+  // state = { ez, seq, tokens:[{id,kind:'p',team,label,x,y}], holder, open,
+  //           routes:{id:[[x,y]..]}, rstep:{id:n}, passes:[{to,curve,step}] }
+  // holder：持盘人，飞盘始终跟着持盘人；没有持盘人就没有飞盘。
+  // routes[id]：选手的跑位线，第一个点就是选手当前位置。
+  // passes：从持盘人开始依次传给谁；curve 为 0 直线、1 / -1 两侧弧线。
+  const fresh = () => ({ ez: false, seq: 0, tokens: [], holder: null, routes: {}, rstep: {}, passes: [] });
+  let state = load() || fresh();
   const undoStack = [];
   let mode = null;                 // {type:'route', id} | {type:'pass'}
-  let playing = false, ended = false, playId = 0;
+  let playing = false, ended = false, paused = false, playId = 0;
+  let speed = SPEEDS.includes(+store.get('-speed')) ? +store.get('-speed') : 1;
 
   function load() {
     try {
-      const s = JSON.parse(localStorage.getItem(KEY));
-      if (s && Array.isArray(s.tokens) && s.routes && Array.isArray(s.passes)) return s;
-    } catch (e) {}
-    return null;
+      const s = JSON.parse(store.get(''));
+      if (!(s && Array.isArray(s.tokens) && s.routes && Array.isArray(s.passes))) return null;
+      // 旧版本里飞盘是独立的标识：换算成"离它最近的选手持盘"
+      const d = s.tokens.find(t => t.kind === 'disc');
+      if (d) {
+        let best = null, bd = HOLD_R;
+        for (const t of s.tokens) if (t.kind === 'p') {
+          const dist = Math.hypot(t.x - d.x, t.y - d.y);
+          if (dist < bd) { bd = dist; best = t.id; }
+        }
+        s.holder = best;
+        s.tokens = s.tokens.filter(t => t.kind !== 'disc');
+      }
+      if (!s.tokens.some(t => t.id === s.holder)) { s.holder = null; s.passes = []; }
+      s.rstep = s.rstep || {};
+      return s;
+    } catch (e) { return null; }
   }
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  function save() { store.set('', JSON.stringify(state)); }
   function commit(before) {
     if (JSON.stringify(state) === before) return;
     undoStack.push(before);
@@ -172,7 +353,14 @@
   function dropRoute(id) { delete state.routes[id]; if (state.rstep) delete state.rstep[id]; }
 
   const tok = id => state.tokens.find(t => t.id === id);
-  const disc = () => state.tokens.find(t => t.kind === 'disc');
+  const holderTok = () => state.holder ? tok(state.holder) : null;
+  // 整套传盘结束后飞盘在谁手上：下一传从他开始
+  const lastOwner = () => state.passes.length ? state.passes[state.passes.length - 1].to : state.holder;
+  function setHolder(id) {
+    state.holder = id;
+    state.passes = state.passes.filter(p => p.to !== id);
+  }
+
   const r2 = v => +v.toFixed(2);
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const el = (name, attrs, parent) => {
@@ -182,19 +370,21 @@
     return n;
   };
   const ptsAttr = pts => pts.map(p => p[0] + ',' + p[1]).join(' ');
+  const buzz = ms => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} };
 
   // ---------- 几何 ----------
-  // 选手跑完后的位置
   const endOf = t => { const r = state.routes[t.id]; return r ? r[r.length - 1] : [t.x, t.y]; };
 
-  // 传盘线段：从飞盘出发，依次传到各接盘人的终点
+  // 传盘线段：从持盘人出发，依次传到各接盘人的终点
   function passSegments() {
-    const d = disc(), out = [];
-    if (!d) return out;
-    let from = [d.x, d.y];
+    const h = holderTok(), out = [];
+    if (!h) return out;
+    let from = [h.x, h.y];
     state.passes.forEach((p, i) => {
       const t = tok(p.to);
       if (!t) return;
+      // 持盘人如果先跑位、后传盘，就从他跑完的位置出手
+      if (i === 0 && state.routes[h.id] && routeStep(h.id) < passStep(p)) from = endOf(h);
       const to = endOf(t);
       const mx = (from[0] + to[0]) / 2, my = (from[1] + to[1]) / 2;
       const dx = to[0] - from[0], dy = to[1] - from[1];
@@ -254,8 +444,20 @@
     }
     return p.map(v => [r2(v[0]), r2(v[1])]);
   }
+  function measure(pts) {
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    return cum;
+  }
+  function along(pts, cum, f) {
+    const target = cum[cum.length - 1] * f;
+    let i = 1;
+    while (i < cum.length - 1 && cum[i] < target) i++;
+    const seg = cum[i] - cum[i - 1] || 1, u = (target - cum[i - 1]) / seg;
+    return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * u, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * u];
+  }
 
-  function badge(p, n, parent) {
+  function orderBadge(p, n, parent) {
     el('circle', { cx: p[0], cy: p[1], r: 1.15, fill: '#0f1f17', stroke: '#ffffff', 'stroke-width': 0.15 }, parent);
     const t = el('text', { x: p[0], y: p[1], 'font-size': 1.5, 'text-anchor': 'middle', 'dominant-baseline': 'central', fill: '#ffffff', 'font-weight': 700, 'pointer-events': 'none' }, parent);
     t.textContent = n;
@@ -275,7 +477,7 @@
         'stroke-dasharray': '1.2 1.1', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, g);
       head(pts[pts.length - 1], backPoint(pts), color, g);
       el('polyline', { points: ptsAttr(pts), fill: 'none', stroke: 'transparent', 'stroke-width': 3.6, 'stroke-linecap': 'round' }, g);
-      if (showOrder) badge(along(pts, measure(pts), 0.5), routeStep(t.id), g);
+      if (showOrder) orderBadge(along(pts, measure(pts), 0.5), routeStep(t.id), g);
     }
     for (const s of passSegments()) {
       const d = `M${s.from[0]} ${s.from[1]} Q${r2(s.c[0])} ${r2(s.c[1])} ${s.to[0]} ${s.to[1]}`;
@@ -283,42 +485,82 @@
       el('path', { d, fill: 'none', stroke: '#ffffff', 'stroke-width': 0.42, 'stroke-dasharray': '0.1 1', 'stroke-linecap': 'round' }, g);
       head(s.to, bez(s, 0.85), '#ffffff', g);
       el('path', { d, fill: 'none', stroke: 'transparent', 'stroke-width': 3.6, 'stroke-linecap': 'round' }, g);
-      if (showOrder) badge(bez(s, 0.5), passStep(state.passes[s.i]), g);
+      if (showOrder) orderBadge(bez(s, 0.5), passStep(state.passes[s.i]), g);
     }
   }
 
   function renderTokens() {
     gTokens.textContent = '';
-    // 飞盘画在最上面
-    const order = state.tokens.filter(t => t.kind !== 'disc').concat(state.tokens.filter(t => t.kind === 'disc'));
-    for (const t of order) {
+    for (const t of state.tokens) {
       const g = el('g', { class: 'token', 'data-id': t.id, transform: `translate(${t.x} ${t.y})` }, gTokens);
       el('circle', { r: HIT, fill: 'transparent' }, g);
-      if (t.kind === 'disc') {
-        el('circle', { r: 1.45, fill: '#ffffff', stroke: '#e11d48', 'stroke-width': 0.42 }, g);
-        el('circle', { r: 0.72, fill: 'none', stroke: '#e11d48', 'stroke-width': 0.2 }, g);
-        continue;
-      }
+      const body = el('g', { class: 'body' }, g);
       const c = TEAM[t.team];
-      if (t.label[0] === 'H') el('rect', { x: -1.8, y: -1.8, width: 3.6, height: 3.6, rx: 0.55, fill: c.fill, stroke: c.stroke, 'stroke-width': 0.22 }, g);
-      else el('circle', { r: R, fill: c.fill, stroke: c.stroke, 'stroke-width': 0.22 }, g);
+      el('circle', { r: R, fill: c.fill, stroke: '#ffffff', 'stroke-width': 0.22 }, body);
+      const gl = el('circle', { r: R - 0.11, fill: 'url(#gloss)' }, body);
+      upright(gl, 0, 0);
       if (t.label) {
-        const tx = el('text', { 'font-size': 1.85, 'text-anchor': 'middle', 'dominant-baseline': 'central', fill: c.text }, g);
+        const tx = el('text', { 'font-size': 1.85, 'text-anchor': 'middle', 'dominant-baseline': 'central', fill: c.text }, body);
         tx.textContent = t.label;
         upright(tx, 0, 0);
       }
     }
+    // 飞盘：持盘时是选手下方的小标；飞行或被拖动时是大飞盘
+    if (holderTok()) {
+      const g = el('g', { class: 'token', 'data-id': 'disc' }, gTokens);
+      const body = el('g', { class: 'body' }, g);
+      const vis = el('g', {}, body);
+      const big = el('g', { class: 'big' }, vis);
+      el('circle', { r: HIT, fill: 'transparent' }, big);
+      el('ellipse', { rx: 1.75, ry: 1.05, fill: '#ffffff', stroke: '#1f2937', 'stroke-width': 0.22 }, big);
+      el('ellipse', { rx: 1.05, ry: 0.55, fill: 'none', stroke: '#9ca3af', 'stroke-width': 0.14 }, big);
+      const small = el('g', { class: 'small' }, vis);
+      el('ellipse', { rx: 1.6, ry: 1.0, fill: 'transparent' }, small);
+      el('ellipse', { rx: 1.05, ry: 0.62, fill: '#ffffff', stroke: '#1f2937', 'stroke-width': 0.16 }, small);
+      upright(vis, 0, 0);
+    }
+  }
+
+  const discG = () => gTokens.querySelector('[data-id="disc"]');
+  // 持盘时画在持盘人 p 的下方（横屏时"屏幕下方"是板上的 -x 方向）
+  function discPos(p, held) {
+    return [held && land ? p[0] - HOLD_OFF : p[0], held && !land ? p[1] + HOLD_OFF : p[1]];
+  }
+  function discAt(p, held) {
+    const g = discG();
+    if (!g) return;
+    const q = discPos(p, held);
+    g.setAttribute('transform', `translate(${q[0].toFixed(2)} ${q[1].toFixed(2)})`);
+    g.querySelector('.big').style.display = held ? 'none' : '';
+    g.querySelector('.small').style.display = held ? '' : 'none';
+  }
+  function discRest() { const h = holderTok(); if (h) discAt([h.x, h.y], true); }
+
+  // 飞盘吸附动画：从 from 滑到持盘人身上，落地后缩成小标
+  function tweenDisc(from) {
+    const h = holderTok(), g = discG();
+    if (!h || !g) return;
+    const to = discPos([h.x, h.y], true), t0 = performance.now(), ms = 220;
+    discAt(from, false);
+    const step = now => {
+      const f = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - f, 3);
+      if (f < 1) {
+        g.setAttribute('transform', `translate(${(from[0] + (to[0] - from[0]) * e).toFixed(2)} ${(from[1] + (to[1] - from[1]) * e).toFixed(2)})`);
+        requestAnimationFrame(step);
+      } else discRest();
+    };
+    requestAnimationFrame(step);
   }
 
   // Open side / Block side：以飞盘所在的竖线为界。
   // open 半边的边框画成虚线，block 半边的边框加粗，中线始终是虚线。
   function renderSide(x) {
-    const g = $('side'), d = disc();
+    const g = $('side'), h = holderTok();
     g.textContent = '';
-    const on = !!(state.open && d);
+    const on = !!(state.open && h);
     $('frame').setAttribute('stroke', on ? 'none' : '#fff');
     if (!on) return;
-    if (x === undefined) x = d.x;
+    if (x === undefined) x = h.x;
     x = clamp(x, 0, W);
     const half = (edge, open) => el('path', {
       d: `M${x} 0H${edge}V${H}H${x}`, fill: 'none', stroke: '#fff', 'stroke-linejoin': 'round',
@@ -329,7 +571,6 @@
     el('line', { x1: x, y1: 0, x2: x, y2: H, stroke: '#fff', 'stroke-width': 0.25, 'stroke-dasharray': '1 1', opacity: 0.8 }, g);
     const tag = (cx, open) => {
       if (Math.abs(cx - x) < 3) return;
-      // 横屏时这行字贴在板的左边缘，改成左对齐以免伸出板外
       const ty = land ? 1.2 : 2.6;
       const t = el('text', { class: 'faint', x: cx, y: ty, 'font-size': 1.7, 'text-anchor': land ? 'start' : 'middle', 'dominant-baseline': 'central' }, g);
       t.textContent = open ? 'OPEN' : 'BLOCK';
@@ -345,142 +586,37 @@
     $('hint').style.display = state.tokens.length ? 'none' : '';
     $('hint').textContent = L('hint');
     upright($('hint'), 20, 40);
-    document.querySelectorAll('#ez text').forEach(n => { n.textContent = L('ez'); n.setAttribute('font-size', land ? 1.7 : 2.6); upright(n, +n.getAttribute('x'), +n.getAttribute('y')); });
+    document.querySelectorAll('#ez text').forEach(n => {
+      n.textContent = L('ez'); n.setAttribute('font-size', land ? 1.7 : 2.6);
+      upright(n, +n.getAttribute('x'), +n.getAttribute('y'));
+    });
     document.title = L('title');
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : lang;
     svg.setAttribute('aria-label', L('title'));
     renderLines();
     renderTokens();
+    discRest();
   }
 
+  // ---------- 小反馈 ----------
   let toastTimer = 0;
   function toast(msg, ms) {
     const t = $('toast');
     t.textContent = msg; t.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('show'), ms || 2600);
+    toastTimer = setTimeout(() => t.classList.remove('show'), ms || 2400);
   }
-
-  // ---------- 弹出菜单 ----------
-  // rows: [[{label, fn, cls, bg, fg, disabled}]]
-  function showMenu(cx, cy, rows) {
-    menu.textContent = '';
-    for (const row of rows) {
-      const r = document.createElement('div');
-      r.className = 'row';
-      for (const it of row) {
-        const b = document.createElement('button');
-        b.textContent = it.label;
-        if (it.cls) b.className = it.cls;
-        if (it.text) { b.disabled = true; b.style.cssText = 'background:none;border:0;opacity:1;min-width:0;padding:0 4px;flex:0'; }
-        if (it.bg) { b.style.background = it.bg; b.style.color = it.fg; b.style.borderColor = it.fg === '#ffffff' ? '#ffffff55' : it.bg; }
-        if (it.aria) b.setAttribute('aria-label', it.aria);
-        if (!it.text) b.disabled = !!it.disabled;
-        b.addEventListener('click', () => { hideMenu(); it.fn(); });
-        r.appendChild(b);
-      }
-      menu.appendChild(r);
-    }
-    // 先放回左上角再量尺寸，否则靠近屏幕边缘时会被挤窄
-    menu.style.left = '0px'; menu.style.top = '0px';
-    menu.classList.add('show');
-    const mw = menu.offsetWidth, mh = menu.offsetHeight;
-    const left = clamp(cx - mw / 2, 8, innerWidth - mw - 8);
-    let top = cy + 26;
-    if (top + mh > innerHeight - 8) top = cy - mh - 26;
-    menu.style.left = left + 'px';
-    menu.style.top = clamp(top, 8, innerHeight - mh - 8) + 'px';
+  function ripple(x, y) {
+    const g = el('g', { transform: `translate(${x} ${y})` }, gFx);
+    el('circle', { r: 2, class: 'ripple' }, g);
+    setTimeout(() => g.remove(), 500);
   }
-  function hideMenu() { menu.classList.remove('show'); }
-  const menuOpen = () => menu.classList.contains('show');
-
-  function addPlayer(team, role, x, y) {
-    act(() => {
-      const n = state.tokens.filter(t => t.kind === 'p' && t.team === team && t.label[0] === role).length + 1;
-      state.tokens.push({ id: 'k' + (++state.seq), kind: 'p', team, label: role ? role + n : '', x, y });
-    });
+  function toScreen(x, y) {
+    const p = svg.createSVGPoint();
+    p.x = x; p.y = y;
+    const q = p.matrixTransform(world.getScreenCTM());
+    return [q.x, q.y];
   }
-
-  function boardMenu(cx, cy, x, y) {
-    const add = (team, role) => ({
-      label: role || '●', aria: L(team === 'a' ? 'teamA' : 'teamB') + ' ' + (role || L('noLabel')),
-      bg: TEAM[team].fill, fg: TEAM[team].text, fn: () => addPlayer(team, role, x, y),
-    });
-    const hasLines = Object.keys(state.routes).length || state.passes.length;
-    showMenu(cx, cy, [
-      [add('a', 'H'), add('a', 'C'), add('a', '')],
-      [add('b', 'H'), add('b', 'C'), add('b', '')],
-      [
-        { label: L('disc'), disabled: !!disc(), fn: () => act(() => state.tokens.push({ id: 'k' + (++state.seq), kind: 'disc', x, y })) },
-        { label: L(state.ez ? 'rmEz' : 'addEz'), fn: () => act(() => { state.ez = !state.ez; }) },
-      ],
-      [
-        { label: '▶ ' + L('play'), aria: L('play'), cls: 'primary', disabled: !hasLines, fn: play },
-        { label: L('undo'), disabled: !undoStack.length, fn: () => { state = JSON.parse(undoStack.pop()); save(); render(); } },
-        { label: L('reset'), cls: 'danger', disabled: !state.tokens.length && !state.ez,
-          fn: () => act(() => { state = { ez: false, seq: 0, tokens: [], routes: {}, rstep: {}, passes: [] }; }) },
-      ],
-      Object.keys(LANG_NAMES).map(k => ({ label: LANG_NAMES[k], cls: k === lang ? 'primary' : '', fn: () => setLang(k) })),
-    ]);
-  }
-
-  function removeToken(id) {
-    act(() => {
-      const t = tok(id);
-      state.tokens = state.tokens.filter(x => x.id !== id);
-      dropRoute(id);
-      state.passes = t.kind === 'disc' ? [] : state.passes.filter(p => p.to !== id);
-    });
-  }
-
-  function tokenMenu(cx, cy, t) {
-    if (t.kind === 'disc') {
-      const side = (label, v) => ({ label, cls: state.open === v ? 'primary' : '', fn: () => act(() => { state.open = v; }) });
-      showMenu(cx, cy, [
-        [
-          { label: L('pass'), fn: () => { mode = { type: 'pass' }; toast(L('tapRecv')); } },
-          { label: L('del'), cls: 'danger', fn: () => removeToken(t.id) },
-        ],
-        // 横屏时板转了 90°：数据里的"左"显示在下方，"右"显示在上方
-        [side(L(land ? 'openD' : 'openL'), 'l'), side(L(land ? 'openU' : 'openR'), 'r'), { label: L('openOff'), disabled: !state.open, fn: () => act(() => { delete state.open; }) }],
-      ]);
-    } else {
-      showMenu(cx, cy, [[
-        { label: L('draw'), fn: () => { mode = { type: 'route', id: t.id }; toast(L('drawHint')); } },
-        { label: L('del'), cls: 'danger', fn: () => removeToken(t.id) },
-      ]]);
-    }
-  }
-
-  function lineMenu(cx, cy, key) {
-    const [kind, ref] = key.split(':');
-    const clearAll = { label: L('clearLines'), cls: 'danger', fn: () => act(() => { state.routes = {}; state.rstep = {}; state.passes = []; }) };
-    // 顺序：选这条线在第几步进行
-    const now = kind === 'r' ? routeStep(ref) : passStep(state.passes[+ref]);
-    const order = [{ label: L('order'), text: true }];
-    for (let n = 1; n <= Math.min(6, maxStep() + 1); n++) {
-      order.push({ label: String(n), cls: n === now ? 'primary' : '', fn: () => act(() => {
-        if (kind === 'r') { state.rstep = state.rstep || {}; state.rstep[ref] = n; }
-        else state.passes[+ref].step = n;
-      }) });
-    }
-    if (kind === 'r') {
-      showMenu(cx, cy, [order, [{ label: L('delLine'), fn: () => act(() => dropRoute(ref)) }, clearAll]]);
-    } else {
-      const i = +ref, set = c => () => act(() => { state.passes[i].curve = c; });
-      showMenu(cx, cy, [
-        order,
-        [{ label: L('straight'), fn: set(0) }, { label: L('arcL'), fn: set(1) }, { label: L('arcR'), fn: set(-1) }],
-        [{ label: L('delLine'), fn: () => act(() => { state.passes.splice(i, 1); }) }, clearAll],
-      ]);
-    }
-  }
-
-  // ---------- 指针 ----------
-  const drags = new Map();
-  let gestureBefore = null;
-  let lastTap = { x: 0, y: 0, time: 0 };
-
   function toField(e) {
     const p = svg.createSVGPoint();
     p.x = e.clientX; p.y = e.clientY;
@@ -488,10 +624,232 @@
     return [q.x, q.y];
   }
 
+  // ---------- 菜单 ----------
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function makeButton(it, again) {
+    const b = document.createElement('button');
+    b.className = it.cls || 'act';
+    if (it.on) b.classList.add('on');
+    if (it.primary) b.classList.add('primary');
+    if (it.danger) b.classList.add('danger');
+    if (it.bg) b.style.background = it.bg;
+    b.innerHTML = (it.icon ? icon(it.icon) : '') + (it.label != null ? `<span>${esc(it.label)}</span>` : '');
+    if (it.aria) b.setAttribute('aria-label', it.aria);
+    b.disabled = !!it.disabled;
+    b.addEventListener('click', () => {
+      if (it.keep) { it.fn(); again(); } else { hideMenu(); it.fn(); }
+    });
+    return b;
+  }
+
+  // 面板菜单：secs = [{title, cls, items:[...]}]；重复调用时就地刷新内容
+  // centered：以点击位置为中心弹出（总菜单）；否则弹在点击位置下方（线的菜单）
+  function panel(cx, cy, secs, again, centered) {
+    clearSelection();
+    rad.classList.remove('show');
+    const wasShown = menu.classList.contains('show');
+    menu.textContent = '';
+    for (const s of secs) {
+      const row = document.createElement('div');
+      row.className = s.cls || 'sec';
+      if (s.title) { const t = document.createElement('div'); t.className = 'sec-title'; t.textContent = s.title; row.appendChild(t); }
+      for (const it of s.items) row.appendChild(makeButton(it, again));
+      menu.appendChild(row);
+    }
+    // 刷新内容时（比如切换语言）重新量尺寸定位，但不重播弹出动画
+    menu.style.left = '0px'; menu.style.top = '0px';
+    if (!wasShown) menu.classList.add('show');
+    const mw = menu.offsetWidth, mh = menu.offsetHeight;
+    const left = clamp(cx - mw / 2, 8, innerWidth - mw - 8);
+    let top = centered ? cy - mh / 2 : cy + 24;
+    if (!centered && top + mh > innerHeight - 8) top = cy - mh - 24;
+    top = clamp(top, 8, innerHeight - mh - 8);
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+    menu.style.setProperty('--ox', (cx - left) + 'px');
+    menu.style.setProperty('--oy', (cy - top) + 'px');
+  }
+
+  // 环绕菜单：按钮围在选手四周
+  function radial(t, items, still) {
+    hideMenu();
+    const s = toScreen(t.x, t.y), r = 70, n = items.length;
+    const cx = clamp(s[0], r + 40, innerWidth - r - 40), cy = clamp(s[1], r + 30, innerHeight - r - 48);
+    rad.textContent = '';
+    rad.classList.toggle('still', !!still);
+    items.forEach((it, i) => {
+      const a = -Math.PI / 2 + i * 2 * Math.PI / n;
+      const bx = cx + r * Math.cos(a), by = cy + r * Math.sin(a);
+      const b = document.createElement('button');
+      b.className = 'rb' + (it.on ? ' on' : '') + (it.danger ? ' danger' : '');
+      b.style.left = bx + 'px'; b.style.top = by + 'px';
+      b.style.setProperty('--fx', (s[0] - bx) + 'px');
+      b.style.setProperty('--fy', (s[1] - by) + 'px');
+      b.style.animationDelay = i * 20 + 'ms';
+      b.innerHTML = `<i>${icon(it.icon)}</i><span>${esc(it.label)}</span>`;
+      b.addEventListener('click', () => {
+        if (it.keep) { it.fn(); playerMenu(tok(t.id), true); } else { hideMenu(); it.fn(); }
+      });
+      rad.appendChild(b);
+    });
+    rad.classList.add('show');
+    const g = gTokens.querySelector(`[data-id="${t.id}"]`);
+    if (g) el('circle', { r: R + 0.3, class: 'selring' }, g);
+  }
+
+  function clearSelection() {
+    gTokens.querySelectorAll('.selring').forEach(n => n.remove());
+    gLines.querySelectorAll('.sel').forEach(n => n.classList.remove('sel'));
+  }
+  function hideMenu() {
+    menu.classList.remove('show');
+    rad.classList.remove('show');
+    rad.textContent = '';
+    clearSelection();
+  }
+  const menuOpen = () => menu.classList.contains('show') || rad.classList.contains('show');
+
+  function addPlayer(team, role, x, y) {
+    act(() => {
+      const n = state.tokens.filter(t => t.team === team && t.label[0] === role).length + 1;
+      state.tokens.push({ id: 'k' + (++state.seq), kind: 'p', team, label: role ? role + n : '', x, y });
+    });
+    const g = gTokens.querySelector(`[data-id="k${state.seq}"]`);
+    if (g) g.classList.add('drop');
+  }
+
+  function boardMenu(cx, cy, x, y) {
+    const again = () => boardMenu(cx, cy, x, y);
+    const chip = (team, role) => ({
+      cls: 'chip', label: role || '●', bg: TEAM[team].fill,
+      aria: L(team === 'a' ? 'teamA' : 'teamB') + ' ' + (role || L('noLabel')),
+      fn: () => addPlayer(team, role, x, y),
+    });
+    const hasLines = Object.keys(state.routes).length || state.passes.length;
+    panel(cx, cy, [
+      { title: L('teamA'), items: [chip('a', 'H'), chip('a', 'C'), chip('a', '')] },
+      { title: L('teamB'), items: [chip('b', 'H'), chip('b', 'C'), chip('b', '')] },
+      { cls: 'sec grid3', items: [
+        { icon: 'play', label: L('play'), primary: true, disabled: !hasLines, fn: play },
+        { icon: 'undo', label: L('undo'), disabled: !undoStack.length, fn: undo },
+        { icon: 'ez', label: L('ezBtn'), on: state.ez, keep: true, fn: () => act(() => { state.ez = !state.ez; }) },
+        { icon: 'lang', label: LANG_NAMES[lang], keep: true, fn: () => setLang(LANGS[(LANGS.indexOf(lang) + 1) % LANGS.length]) },
+        { icon: 'help', label: L('help'), fn: showIntro },
+        { icon: 'reset', label: L('reset'), danger: true, disabled: !state.tokens.length && !state.ez,
+          fn: () => { act(() => { state = fresh(); }); buzz(20); } },
+      ] },
+    ], again, true);
+  }
+
+  function undo() {
+    if (!undoStack.length) return;
+    state = JSON.parse(undoStack.pop());
+    save(); render();
+  }
+  function setLang(v) {
+    lang = v;
+    store.set('-lang', v);
+    render();
+  }
+
+  function removeToken(id) {
+    act(() => {
+      state.tokens = state.tokens.filter(x => x.id !== id);
+      dropRoute(id);
+      if (state.holder === id) { state.holder = null; state.passes = []; }
+      else state.passes = state.passes.filter(p => p.to !== id);
+    });
+    buzz(15);
+  }
+
+  // Open side 依次切换：关 → 左 → 右 → 关（横屏时左右显示为下上）
+  function openLabel() {
+    const arrow = state.open === 'l' ? (land ? ' ↓' : ' ←') : state.open === 'r' ? (land ? ' ↑' : ' →') : '';
+    return L('open') + arrow;
+  }
+  function cycleOpen() {
+    act(() => {
+      const next = { undefined: 'l', l: 'r', r: undefined }[state.open];
+      if (next) state.open = next; else delete state.open;
+    });
+  }
+
+  function playerMenu(t, still) {
+    if (!t) return;
+    const items = [];
+    if (state.holder === t.id) items.push({ icon: 'open', label: openLabel(), on: !!state.open, keep: true, fn: cycleOpen });
+    else items.push({ icon: 'hold', label: L('hold'), fn: () => { act(() => setHolder(t.id)); buzz(12); } });
+    if (lastOwner() === t.id) items.push({ icon: 'pass', label: L('pass'), fn: () => { mode = { type: 'pass' }; toast(L('tapRecv')); } });
+    items.push({ icon: 'draw', label: L('draw'), fn: () => { mode = { type: 'route', id: t.id }; toast(L('drawHint')); } });
+    items.push({ icon: 'del', label: L('del'), danger: true, fn: () => removeToken(t.id) });
+    radial(t, items, still);
+  }
+
+  function lineMenu(cx, cy, key) {
+    const [kind, ref] = key.split(':');
+    const again = () => lineMenu(cx, cy, key);
+    if (kind === 'p' && !state.passes[+ref]) return hideMenu();
+    const now = kind === 'r' ? routeStep(ref) : passStep(state.passes[+ref]);
+    const order = [];
+    for (let n = 1; n <= Math.min(6, maxStep() + 1); n++) {
+      order.push({ cls: 'num', label: String(n), on: n === now, keep: true, fn: () => act(() => {
+        if (kind === 'r') state.rstep[ref] = n;
+        else state.passes[+ref].step = n;
+      }) });
+    }
+    const secs = [{ title: L('order'), items: order }];
+    if (kind === 'p') {
+      const p = state.passes[+ref], set = c => () => act(() => { state.passes[+ref].curve = c; });
+      secs.push({ items: [
+        { cls: 'pill', icon: 'straight', label: L('straight'), on: p.curve === 0, keep: true, fn: set(0) },
+        { cls: 'pill', icon: 'arcL', label: L('arcL'), on: p.curve === 1, keep: true, fn: set(1) },
+        { cls: 'pill', icon: 'arcR', label: L('arcR'), on: p.curve === -1, keep: true, fn: set(-1) },
+      ] });
+    }
+    secs.push({ items: [
+      { cls: 'pill', icon: 'del', label: L('delLine'), danger: true,
+        fn: () => act(() => { if (kind === 'r') dropRoute(ref); else state.passes.splice(+ref, 1); }) },
+      { cls: 'pill', icon: 'clear', label: L('clearLines'), danger: true,
+        fn: () => act(() => { state.routes = {}; state.rstep = {}; state.passes = []; }) },
+    ] });
+    panel(cx, cy, secs, again);
+    const g = gLines.querySelector(`[data-line="${key}"]`);
+    if (g) g.classList.add('sel');
+  }
+
+  // ---------- 首次使用说明 ----------
+  function showIntro() {
+    $('in-title').textContent = L('introTitle');
+    $('in-1').textContent = L('intro1');
+    $('in-2').textContent = L('intro2');
+    $('in-3').textContent = L('intro3');
+    $('in-i1').innerHTML = icon('dbl');
+    $('in-i2').innerHTML = icon('tap');
+    $('in-i3').innerHTML = icon('move');
+    $('in-ok').textContent = L('introOk');
+    $('intro').classList.add('show');
+  }
+  $('in-ok').addEventListener('click', () => { $('intro').classList.remove('show'); store.set('-intro', '1'); });
+
+  // ---------- 指针 ----------
+  const drags = new Map();
+  let gestureBefore = null;
+  let lastTap = { x: 0, y: 0, time: 0 };
+
+  function nearestPlayer(p, maxDist) {
+    let best = null, bd = maxDist;
+    for (const t of state.tokens) {
+      const d = Math.hypot(t.x - p[0], t.y - p[1]);
+      if (d < bd) { bd = d; best = t.id; }
+    }
+    return best;
+  }
+
   svg.addEventListener('pointerdown', e => {
     if (e.button > 0) return;
     e.preventDefault();
-    if (playing || ended) { stopPlay(); return; }
+    if (playing) { togglePause(); return; }
+    if (ended) { stopPlay(); return; }
     const wasOpen = menuOpen();
     hideMenu();
 
@@ -502,14 +860,18 @@
 
     if (mode && mode.type === 'pass') {
       mode = null;
-      const t = tokenEl && tok(tokenEl.dataset.id);
-      if (t && t.kind === 'p') act(() => {
+      let id = tokenEl && tokenEl.dataset.id;
+      if (id === 'disc') id = state.holder;
+      const t = id && tok(id);
+      if (!t) { toast(L('passCancel')); return; }
+      if (t.id === lastOwner()) { toast(L('selfPass')); return; }
+      ripple(t.x, t.y); buzz(10);
+      act(() => {
         // 默认顺序：跟接盘人的跑位同一步，且排在上一传之后
         const prev = state.passes[state.passes.length - 1];
         const step = Math.max(state.routes[t.id] ? routeStep(t.id) : 1, prev ? passStep(prev) + 1 : 1);
         state.passes.push({ to: t.id, curve: 1, step });
       });
-      else toast(L('passCancel'));
       return;
     }
     if (mode && mode.type === 'route') {
@@ -520,10 +882,11 @@
     } else if (tokenEl) {
       const id = tokenEl.dataset.id;
       for (const o of drags.values()) if (o.id === id) return;
-      const t = tok(id);
-      d = { kind: 'token', id, g: tokenEl, ox: t.x - x, oy: t.y - y, moved: false };
+      // 按屏幕上画出来的位置算偏移（持盘小标画在选手下方，和数据位置不同）
+      const m = tokenEl.transform.baseVal.consolidate().matrix;
+      d = { kind: id === 'disc' ? 'disc' : 'token', id, g: tokenEl, ox: m.e - x, oy: m.f - y, moved: false };
     } else if (lineEl) {
-      d = { kind: 'line', key: lineEl.dataset.line };
+      d = { kind: 'line', key: lineEl.dataset.line, x, y };
     } else {
       d = { kind: 'empty', wasOpen, x, y };
     }
@@ -547,20 +910,30 @@
         d.pts.push([nx, ny]);
         d.line.setAttribute('points', ptsAttr(d.pts));
       }
-    } else if (d.kind === 'token') {
-      if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6) return;
-      d.moved = true;
-      const t = tok(d.id);
-      const nx = r2(clamp(x + d.ox, 0, W)), ny = r2(clamp(y + d.oy, 0, H));
-      const dx = nx - t.x, dy = ny - t.y;
-      t.x = nx; t.y = ny;
-      // 跑位线跟着选手一起平移
-      const route = state.routes[d.id];
-      if (route) for (const p of route) { p[0] = r2(p[0] + dx); p[1] = r2(p[1] + dy); }
-      d.g.setAttribute('transform', `translate(${nx} ${ny})`);
-      if (t.kind === 'disc') renderSide();
-      renderLines();
+      return;
     }
+    if (d.kind !== 'token' && d.kind !== 'disc') return;
+    if (!d.moved) {
+      if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6) return;
+      d.moved = true;
+      d.g.classList.add('lifted');
+    }
+    const nx = r2(clamp(x + d.ox, 0, W)), ny = r2(clamp(y + d.oy, 0, H));
+    if (d.kind === 'disc') {
+      d.at = [nx, ny];
+      discAt(d.at, false);
+      if (state.open) renderSide(nx);
+      return;
+    }
+    const t = tok(d.id);
+    const dx = nx - t.x, dy = ny - t.y;
+    t.x = nx; t.y = ny;
+    // 跑位线跟着选手一起平移
+    const route = state.routes[d.id];
+    if (route) for (const p of route) { p[0] = r2(p[0] + dx); p[1] = r2(p[1] + dy); }
+    d.g.setAttribute('transform', `translate(${nx} ${ny})`);
+    if (d.id === state.holder) { discRest(); renderSide(); }
+    renderLines();
   });
 
   function pathLength(pts) {
@@ -575,21 +948,32 @@
     drags.delete(e.pointerId);
     const still = Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 8;
     const up = e.type === 'pointerup';
-    let open = null;
+    let open = null, dropped = null, discFrom = null;
 
     if (d.kind === 'draw') {
       mode = null;
       if (pathLength(d.pts) >= 1.5) state.routes[d.id] = smooth(d.pts);
       else toast(L('drawCancel'));
     } else if (d.kind === 'token') {
-      if (!d.moved && up) open = () => tokenMenu(e.clientX, e.clientY, tok(d.id));
+      if (d.moved) dropped = d.id;
+      else if (up) { const t = tok(d.id); ripple(t.x, t.y); open = () => playerMenu(tok(d.id)); }
+    } else if (d.kind === 'disc') {
+      if (d.moved) {
+        // 拖到另一名选手身边：交给他；放在空地上：飞回原持盘人
+        const near = nearestPlayer(d.at, HOLD_R);
+        if (near && near !== state.holder) { setHolder(near); buzz(15); }
+        discFrom = d.at;
+      } else if (up) {
+        const h = holderTok(); ripple(h.x, h.y); open = () => playerMenu(holderTok());
+      }
     } else if (d.kind === 'line') {
-      if (still && up) open = () => lineMenu(e.clientX, e.clientY, d.key);
+      if (still && up) { ripple(d.x, d.y); open = () => lineMenu(e.clientX, e.clientY, d.key); }
     } else if (d.kind === 'empty' && still && up && !d.wasOpen) {
       // 双击空白处：打开总菜单
       const now = performance.now();
       if (now - lastTap.time < 400 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
         lastTap.time = 0;
+        ripple(d.x, d.y);
         const fx = clamp(d.x, 2, W - 2), fy = clamp(d.y, 2, H - 2);
         open = () => boardMenu(e.clientX, e.clientY, r2(fx), r2(fy));
       } else {
@@ -602,6 +986,8 @@
       gestureBefore = null;
       render();
     }
+    if (dropped) { const g = gTokens.querySelector(`[data-id="${dropped}"]`); if (g) g.classList.add('drop'); }
+    if (discFrom) tweenDisc(discFrom);
     if (open) open();
   }
   svg.addEventListener('pointerup', endDrag);
@@ -610,7 +996,9 @@
   document.addEventListener('gesturestart', e => e.preventDefault());
   document.addEventListener('touchmove', e => { if (e.target.closest('#board')) e.preventDefault(); }, { passive: false });
   // 点到板外的空白也收起菜单
-  document.addEventListener('pointerdown', e => { if (!e.target.closest('#menu') && !e.target.closest('#board')) hideMenu(); });
+  document.addEventListener('pointerdown', e => {
+    if (!e.target.closest('#menu, #radial .rb, #board')) hideMenu();
+  });
 
   // ---------- 播放 ----------
   const ease = f => f < 0.5 ? 2 * f * f : 1 - Math.pow(-2 * f + 2, 2) / 2;
@@ -621,43 +1009,54 @@
     if (f <= 1 - b) return v * (f - a / 2);
     return 1 - v * (1 - f) * (1 - f) / (2 * b);
   }
-  function measure(pts) {
-    const cum = [0];
-    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
-    return cum;
-  }
-  function along(pts, cum, f) {
-    const target = cum[cum.length - 1] * f;
-    let i = 1;
-    while (i < cum.length - 1 && cum[i] < target) i++;
-    const seg = cum[i] - cum[i - 1] || 1, u = (target - cum[i - 1]) / seg;
-    return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * u, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * u];
-  }
+  const livePos = {};   // 播放中各选手当前位置
   const place = (id, p) => {
+    livePos[id] = p;
     const g = gTokens.querySelector(`[data-id="${id}"]`);
     if (g) g.setAttribute('transform', `translate(${p[0].toFixed(2)} ${p[1].toFixed(2)})`);
   };
 
-  // 所有选手同时跑；第一传在选手跑到位时送到，之后的传盘依次进行
+  const bar = $('bar');
+  let barStep = '';
+  function updateBar(progress) {
+    $('pb-play').innerHTML = icon(ended ? 'replay' : paused ? 'play' : 'pause');
+    $('pb-play').setAttribute('aria-label', L(ended ? 'replay' : paused ? 'play' : 'pause'));
+    $('pb-speed').textContent = speed + '×';
+    $('pb-close').innerHTML = icon('close');
+    $('pb-close').setAttribute('aria-label', L('close'));
+    $('pb-step').textContent = barStep;
+    if (progress !== undefined) $('pb-fill').style.width = (progress * 100).toFixed(1) + '%';
+  }
+  function togglePause() { if (playing) { paused = !paused; updateBar(); } }
+  $('pb-play').addEventListener('click', () => { if (ended) play(); else togglePause(); });
+  $('pb-speed').addEventListener('click', () => {
+    speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length];
+    store.set('-speed', speed);
+    updateBar();
+  });
+  $('pb-close').addEventListener('click', stopPlay);
+
+  // 同一步里选手同时起跑，传盘在接盘人跑到位时送到；不同步依次进行
   function play() {
+    hideMenu();
     render();
     const movers = state.tokens.filter(t => state.routes[t.id]).map(t => {
       const pts = state.routes[t.id], cum = measure(pts);
-      // 用时按路线长度算，跑得远就用得久
-      return { id: t.id, pts, cum, step: routeStep(t.id), ms: clamp(cum[cum.length - 1] / RUN_SPEED * 1000, 500, 5000) };
+      return { id: t.id, pts, cum, step: routeStep(t.id), ms: clamp(cum[cum.length - 1] / RUN_SPEED * 1000, 1000, 9000) };
     });
-    const segs = passSegments(), d = disc();
+    const segs = passSegments();
     for (const s of segs) {
       s.step = passStep(state.passes[s.i]);
       s.to_id = state.passes[s.i].to;
-      s.ms = clamp(Math.hypot(s.to[0] - s.from[0], s.to[1] - s.from[1]) / PASS_SPEED * 1000, 450, 1300);
+      s.ms = clamp(Math.hypot(s.to[0] - s.from[0], s.to[1] - s.from[1]) / PASS_SPEED * 1000, 900, 2600);
     }
     const stepNos = [...new Set(movers.map(m => m.step).concat(segs.map(s => s.step)))].sort((a, b) => a - b);
     if (!stepNos.length) { toast(L('needLines')); return; }
 
-    // 排时间表：一步一步来；同一步里选手同时起跑，传盘在接盘人跑到位时送到
     let T = 0;
+    const stepStarts = [];
     for (const n of stepNos) {
+      stepStarts.push(T);
       let len = 0, cursor = 0;
       for (const m of movers) if (m.step === n) { m.t0 = T; len = Math.max(len, m.ms); }
       for (const s of segs) if (s.step === n) {
@@ -672,25 +1071,55 @@
     const total = T - STEP_GAP;
 
     const my = ++playId;
-    playing = true; ended = false;
-    gLines.style.display = 'none';   // 播放时不显示轨迹线
-    toast(L('playing'), 1500);
-    const start = performance.now() + 500;
-    const frame = () => {
+    playing = true; ended = false; paused = false;
+    gLines.style.display = 'none';   // 播放时不显示跑位线
+    // 飞盘轨迹：每一传一条点线，随飞盘飞行逐渐画出来
+    const gTrail = $('trail');
+    gTrail.textContent = '';
+    for (const s of segs) s.trail = el('path', { d: '', fill: 'none', stroke: '#ffffff', 'stroke-width': 0.42,
+      'stroke-dasharray': '0.1 1', 'stroke-linecap': 'round', opacity: 0.9 }, gTrail);
+
+    const initHolder = state.holder;
+    for (const k in livePos) delete livePos[k];
+    const posOf = id => livePos[id] || [tok(id).x, tok(id).y];
+
+    barStep = L('step').replace('{a}', 1).replace('{b}', stepNos.length);
+    updateBar(0);
+    bar.classList.add('show');
+
+    let t = -LEAD, prev = null;
+    const frame = ts => {
       if (my !== playId) return;
-      const now = Math.max(0, performance.now() - start);
+      if (prev !== null && !paused) t += Math.min(64, ts - prev) * speed;
+      prev = ts;
+      const now = Math.max(0, t);
       for (const m of movers) place(m.id, along(m.pts, m.cum, run(clamp((now - m.t0) / m.ms, 0, 1))));
-      if (d && segs.length) {
-        let p = segs[0].from, last = -1;
-        for (const s of segs) if (now >= s.t0 && s.t0 >= last) { last = s.t0; p = bez(s, ease(Math.min(1, (now - s.t0) / s.ms))); }
-        place(d.id, p);
+      if (initHolder) {
+        let p = posOf(initHolder), last = -1, cur = null;
+        for (const s of segs) {
+          if (now < s.t0) { s.trail.setAttribute('d', ''); continue; }
+          const u = ease(Math.min(1, (now - s.t0) / s.ms)), q = bez(s, u);
+          // 截取二次贝塞尔曲线 0→u 的部分
+          const c1 = [s.from[0] + (s.c[0] - s.from[0]) * u, s.from[1] + (s.c[1] - s.from[1]) * u];
+          s.trail.setAttribute('d', `M${s.from[0]} ${s.from[1]} Q${c1[0].toFixed(2)} ${c1[1].toFixed(2)} ${q[0].toFixed(2)} ${q[1].toFixed(2)}`);
+          if (s.t0 >= last) { last = s.t0; p = q; cur = s; }
+        }
+        // 持盘时飞盘是小标、跟着持盘人跑；飞行中是大飞盘
+        const holder = !cur ? initHolder : now >= cur.t0 + cur.ms ? cur.to_id : null;
+        if (holder) p = posOf(holder);
+        discAt(p, !!holder);
         if (state.open) renderSide(p[0]);   // 中线跟着飞盘走
       }
+      let k = 0;
+      while (k + 1 < stepStarts.length && now >= stepStarts[k + 1]) k++;
+      const label = L('step').replace('{a}', k + 1).replace('{b}', stepNos.length);
+      if (label !== barStep) barStep = label;
       if (now >= total) {
         playing = false; ended = true;
-        toast(L('ended'), 4000);
+        updateBar(1);
         return;
       }
+      updateBar(now / total);
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
@@ -698,14 +1127,16 @@
 
   function stopPlay() {
     playId++;
-    playing = false; ended = false;
+    playing = false; ended = false; paused = false;
+    bar.classList.remove('show');
     gLines.style.display = '';
-    $('toast').classList.remove('show');
+    $('trail').textContent = '';
     render();
   }
 
   applyOrient();
   render();
+  if (!store.get('-intro')) showIntro();
 })();
 </script>
 </body>
